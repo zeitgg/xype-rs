@@ -55,11 +55,15 @@ export function renderJob(
     return renderMotionVideo(ffmpegPath, inputPath, settings);
   }
   if (mode === "trim") {
-    return invoke<ProcessResult>("trim_video_simple", {
+    const segments =
+      settings.trimSegments.length > 0
+        ? settings.trimSegments
+        : [{ id: "active", start: settings.trimStart, end: settings.trimEnd }];
+
+    return invoke<ProcessResult>("trim_video_segments", {
       ffmpegPath,
       inputPath,
-      startSeconds: settings.trimStart,
-      endSeconds: settings.trimEnd,
+      segments: segments.map(({ start, end }) => ({ start, end })),
     });
   }
   if (mode === "compress") {

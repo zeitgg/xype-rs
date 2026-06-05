@@ -1,8 +1,10 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import type { BlurPreset, JobMode, MotionSettings } from "./types";
+import type { BlurPreset, JobMode, MotionSettings, TrimSegment } from "./types";
 
 type Props = {
   mode: JobMode;
@@ -29,6 +31,10 @@ const presets: Array<{ id: BlurPreset; label: string; description: string }> = [
 export function MotionSettingsPanel({ mode, onChange, onPresetChange, preset, settings }: Props) {
   function update(next: Partial<MotionSettings>) {
     onChange({ ...settings, ...next });
+  }
+
+  function updateSegments(trimSegments: TrimSegment[]) {
+    update({ trimSegments: [...trimSegments].sort((a, b) => a.start - b.start) });
   }
 
   return (
@@ -64,53 +70,22 @@ export function MotionSettingsPanel({ mode, onChange, onPresetChange, preset, se
         ) : (
           <div className="rounded-md border border-white/[0.075] bg-white/[0.025] p-3">
             <p className="text-sm font-semibold">
-          {mode === "trim" && "Trim clip"}
-          {mode === "compress" && "Upload-ready compression"}
+              {mode === "trim" && "Cut segment"}
+              {mode === "compress" && "Upload-ready compression"}
               {mode === "discord" && "Discord 8 MB copy"}
               {mode === "youtube" && "2160p YouTube copy"}
               {mode === "tiktok" && "TikTok FPS copy"}
             </p>
             <p className="mt-1 text-xs text-white/38">
               {mode === "trim"
-                ? "Set the part of the video you want to keep."
+                ? "The highlighted range under the viewer will be exported."
                 : "xype chooses practical settings automatically for this module."}
             </p>
             {mode === "trim" && (
-              <div className="mt-3 space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <NumberField
-                    label="Start"
-                    min={0}
-                    onChange={(trimStart) => update({ trimStart })}
-                    step={0.1}
-                    value={settings.trimStart}
-                  />
-                  <NumberField
-                    label="End"
-                    min={0.1}
-                    onChange={(trimEnd) => update({ trimEnd })}
-                    step={0.1}
-                    value={settings.trimEnd}
-                  />
-                </div>
-                <div className="grid grid-cols-3 gap-1">
-                  {[
-                    ["0-10s", 0, 10],
-                    ["0-30s", 0, 30],
-                    ["30-60s", 30, 60],
-                  ].map(([label, start, end]) => (
-                    <Button
-                      key={label}
-                      onClick={() => update({ trimStart: Number(start), trimEnd: Number(end) })}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-              </div>
+              <TrimSegmentPanel
+                onUpdate={updateSegments}
+                settings={settings}
+              />
             )}
           </div>
         )}
@@ -210,6 +185,112 @@ export function MotionSettingsPanel({ mode, onChange, onPresetChange, preset, se
       </div>
     </section>
   );
+}
+
+type TrimSegmentPanelProps = {
+  onUpdate: (segments: TrimSegment[]) => void;
+  settings: MotionSettings;
+};
+
+function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
+  const activeSegment = {
+    id: "active",
+    start: settings.trimStart,
+    end: settings.trimEnd,
+  };
+  const visibleSegments = settings.trimSegments.length > 0 ? settings.trimSegments : [activeSegment];
+
+  function removeSegment(id: string) {
+    onUpdate(settings.trimSegments.filter((segment) => segment.id !== id));
+  }
+
+  function addCurrentRange() {
+    if (settings.trimEnd <= settings.trimStart) return;
+    onUpdate([
+      ...settings.trimSegments,
+      {
+        id: crypto.randomUUID(),
+        start: settings.trimStart,
+        end: settings.trimEnd,
+      },
+    ]);
+  }
+
+  return (
+    <div className="mt-3 space-y-3">
+      <div className="rounded border border-white/[0.06] bg-black/15 p-3">
+        <div className="flex justify-between text-xs">
+          <span className="text-white/38">Segments</span>
+          <span className="font-mono text-white/70">{visibleSegments.length}</span>
+        </div>
+        <div className="mt-2 flex justify-between text-xs">
+          <span className="text-white/38">Selected</span>
+          <span className="font-mono text-white/70">{formatSeconds(totalTrimLength(settings))}</span>
+        </div>
+        <div className="mt-2 flex justify-between border-t border-white/[0.06] pt-2 text-xs">
+          <span className="text-white/38">Export</span>
+          <span className="text-white/70">Merged file</span>
+        </div>
+      </div>
+
+      <div className="max-h-72 overflow-auto rounded border border-white/[0.075] bg-black/10">
+        {visibleSegments.map((segment, index) => (
+          <div
+            className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0"
+            key={segment.id}
+          >
+            <span className="rounded bg-white/[0.07] px-2 py-1 text-center text-[11px] text-white/65">
+              {index + 1}
+            </span>
+            <div className="min-w-0">
+              <div className="truncate font-mono text-xs text-white/75">
+                {formatSeconds(segment.start)} - {formatSeconds(segment.end)}
+              </div>
+              <div className="mt-0.5 font-mono text-[11px] text-white/32">
+                {formatSeconds(Math.max(0, segment.end - segment.start))}
+              </div>
+            </div>
+            {settings.trimSegments.length > 0 ? (
+              <button
+                aria-label={`Remove segment ${index + 1}`}
+                className="flex size-7 items-center justify-center rounded text-white/35 hover:bg-white/[0.06] hover:text-white/80"
+                onClick={() => removeSegment(segment.id)}
+                type="button"
+              >
+                <HugeiconsIcon className="size-4" icon={Delete02Icon} />
+              </button>
+            ) : (
+              <button
+                aria-label="Add current range"
+                className="flex size-7 items-center justify-center rounded text-white/35 hover:bg-white/[0.06] hover:text-white/80"
+                onClick={addCurrentRange}
+                type="button"
+              >
+                <HugeiconsIcon className="size-4" icon={PlusSignIcon} />
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function formatSeconds(seconds: number) {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "0:00.00";
+  const minutes = Math.floor(seconds / 60);
+  const wholeSeconds = Math.floor(seconds % 60);
+  const centiseconds = Math.floor((seconds % 1) * 100);
+  return `${minutes}:${wholeSeconds.toString().padStart(2, "0")}.${centiseconds
+    .toString()
+    .padStart(2, "0")}`;
+}
+
+function totalTrimLength(settings: MotionSettings) {
+  if (settings.trimSegments.length === 0) {
+    return Math.max(0, settings.trimEnd - settings.trimStart);
+  }
+  return settings.trimSegments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0);
 }
 
 type NumberFieldProps = {

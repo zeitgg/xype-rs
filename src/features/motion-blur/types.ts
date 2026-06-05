@@ -7,6 +7,12 @@ export type ProcessResult = {
   outputPath: string | null;
 };
 
+export type TrimSegment = {
+  id: string;
+  start: number;
+  end: number;
+};
+
 export type MotionSettings = {
   interpolateFps: number;
   outputFps: number;
@@ -17,6 +23,7 @@ export type MotionSettings = {
   timescale: number;
   trimStart: number;
   trimEnd: number;
+  trimSegments: TrimSegment[];
 };
 
 export type BlurPreset = "subtle" | "recommended" | "strong";
@@ -25,16 +32,17 @@ export type JobMode = "motion" | "trim" | "compress" | "discord" | "youtube" | "
 export type JobDefinition = {
   id: JobMode;
   label: string;
+  shortLabel: string;
   description: string;
 };
 
 export const jobDefinitions: JobDefinition[] = [
-  { id: "motion", label: "Motion Blur", description: "Render a smoother version of a clip." },
-  { id: "trim", label: "Trim", description: "Cut a shorter clip without re-encoding." },
-  { id: "compress", label: "Compress", description: "Create a smaller upload-ready copy." },
-  { id: "discord", label: "Discord 8 MB", description: "Compress a clip for Discord upload limits." },
-  { id: "youtube", label: "YouTube 4K", description: "Create a 2160p upload copy for YouTube." },
-  { id: "tiktok", label: "TikTok FPS", description: "Create an FPS-adjusted copy for TikTok." },
+  { id: "motion", label: "Motion Blur", shortLabel: "Blur", description: "Render a smoother version of a clip." },
+  { id: "trim", label: "Trim", shortLabel: "Trim", description: "Cut a shorter clip without re-encoding." },
+  { id: "compress", label: "Compress", shortLabel: "Zip", description: "Create a smaller upload-ready copy." },
+  { id: "discord", label: "Discord 8 MB", shortLabel: "8 MB", description: "Compress a clip for Discord upload limits." },
+  { id: "youtube", label: "YouTube 4K", shortLabel: "4K", description: "Create a 2160p upload copy for YouTube." },
+  { id: "tiktok", label: "TikTok FPS", shortLabel: "FPS", description: "Create an FPS-adjusted copy for TikTok." },
 ];
 
 export const defaultMotionSettings: MotionSettings = {
@@ -47,6 +55,7 @@ export const defaultMotionSettings: MotionSettings = {
   timescale: 1,
   trimStart: 0,
   trimEnd: 10,
+  trimSegments: [],
 };
 
 export const blurPresets: Record<BlurPreset, MotionSettings> = {
@@ -60,6 +69,7 @@ export const blurPresets: Record<BlurPreset, MotionSettings> = {
     timescale: 1,
     trimStart: 0,
     trimEnd: 10,
+    trimSegments: [],
   },
   recommended: defaultMotionSettings,
   strong: {
@@ -72,5 +82,6 @@ export const blurPresets: Record<BlurPreset, MotionSettings> = {
     timescale: 1,
     trimStart: 0,
     trimEnd: 10,
+    trimSegments: [],
   },
 };

@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 
 type Props = {
+  actionLabel?: string;
   canRender: boolean;
   modeLabel: string;
   onRender: () => void;
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function StatusPanel({
+  actionLabel = "Create Copy",
   canRender,
   modeLabel,
   onRender,
@@ -41,7 +43,7 @@ export function StatusPanel({
         {status && !processing && <p className="truncate text-[11px] text-white/28">{status}</p>}
       </div>
       <Button className="h-8 w-36" disabled={!canRender} onClick={onRender} type="button">
-        {processing ? "Working" : "Create Copy"}
+        {processing ? "Working" : actionLabel}
       </Button>
     </section>
   );

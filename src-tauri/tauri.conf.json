@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "xype",
-  "version": "0.1.0",
+  "version": "1.0.0-beta",
   "identifier": "gg.xype.app",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -12,6 +12,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "resources": {
       "resources/motion-runtime": "motion-runtime"
     },
@@ -23,12 +24,22 @@
       "icons/icon.ico"
     ]
   },
+  "plugins": {
+    "updater": {
+      "windows": {
+        "installMode": "passive"
+      },
+      "endpoints": ["https://github.com/zeitgg/xype-rs/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2NDYzNkQzMEVGQzU2MTMKUldRVFZ2d08welpHWm00UmtKWE1lUWRmRnhLcWM1aUNFdzVGVVFCQUZvOVpMUEZsVGxaUjQ4SWoK"
+    }
+  },
   "app": {
     "windows": [
       {
         "title": "xype",
         "width": 800,
         "height": 600,
+        "devtools": false,
         "decorations": false
       }
     ],

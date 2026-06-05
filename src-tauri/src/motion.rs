@@ -21,6 +21,12 @@ pub struct ProcessResult {
     pub output_path: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct TrimSegment {
+    pub start: f64,
+    pub end: f64,
+}
+
 fn hidden_cmd(path: &PathBuf) -> Command {
     let mut cmd = Command::new(path);
     #[cfg(windows)]
@@ -1001,6 +1007,131 @@ pub fn trim_video_simple(
         Ok(ProcessResult {
             success: true,
             message: "Trimmed clip".to_string(),
+            output_path: output_path.to_str().map(str::to_string),
+        })
+    } else {
+        Ok(ProcessResult {
+            success: false,
+            message: format!("FFmpeg error: {}", String::from_utf8_lossy(&output.stderr)),
+            output_path: None,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn trim_video_segments(
+    app: tauri::AppHandle,
+    ffmpeg_path: String,
+    input_path: String,
+    segments: Vec<TrimSegment>,
+) -> Result<ProcessResult, String> {
+    let ffmpeg = PathBuf::from(&ffmpeg_path);
+    let input = PathBuf::from(&input_path);
+    if !ffmpeg.exists() || !input.exists() {
+        return Ok(ProcessResult {
+            success: false,
+            message: "Missing FFmpeg or input video".to_string(),
+            output_path: None,
+        });
+    }
+
+    let valid_segments = segments
+        .into_iter()
+        .filter(|segment| segment.start >= 0.0 && segment.end > segment.start)
+        .collect::<Vec<_>>();
+    if valid_segments.is_empty() {
+        return Ok(ProcessResult {
+            success: false,
+            message: "Add at least one valid segment.".to_string(),
+            output_path: None,
+        });
+    }
+
+    if valid_segments.len() == 1 {
+        let segment = &valid_segments[0];
+        return trim_video_simple(ffmpeg_path, input_path, segment.start, segment.end);
+    }
+
+    let output_path = input_output_path(&input, "segments", "mp4");
+    if output_path.exists() {
+        let _ = fs::remove_file(&output_path);
+    }
+
+    let temp_dir = std::env::temp_dir().join(format!(
+        "xype-segments-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or_default()
+    ));
+    fs::create_dir_all(&temp_dir).map_err(|e| e.to_string())?;
+
+    let total_steps = valid_segments.len() + 1;
+    let mut part_paths = Vec::with_capacity(valid_segments.len());
+    for (index, segment) in valid_segments.iter().enumerate() {
+        let part_path = temp_dir.join(format!("segment-{index:04}.mp4"));
+        let output = hidden_cmd(&ffmpeg)
+            .arg("-y")
+            .arg("-ss")
+            .arg(format!("{:.3}", segment.start))
+            .arg("-to")
+            .arg(format!("{:.3}", segment.end))
+            .arg("-i")
+            .arg(&input)
+            .arg("-map")
+            .arg("0")
+            .arg("-c")
+            .arg("copy")
+            .arg("-avoid_negative_ts")
+            .arg("make_zero")
+            .arg(&part_path)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !output.status.success() || !part_path.exists() {
+            let _ = fs::remove_dir_all(&temp_dir);
+            return Ok(ProcessResult {
+                success: false,
+                message: format!("FFmpeg error: {}", String::from_utf8_lossy(&output.stderr)),
+                output_path: None,
+            });
+        }
+
+        part_paths.push(part_path);
+        let _ = app.emit(
+            "render-progress",
+            ((index + 1) as f64 / total_steps as f64).min(0.95),
+        );
+    }
+
+    let list_path = temp_dir.join("segments.txt");
+    let list_content = part_paths
+        .iter()
+        .map(|path| format!("file '{}'", path.to_string_lossy().replace('\\', "/").replace('\'', "'\\''")))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(&list_path, list_content).map_err(|e| e.to_string())?;
+
+    let output = hidden_cmd(&ffmpeg)
+        .arg("-y")
+        .arg("-f")
+        .arg("concat")
+        .arg("-safe")
+        .arg("0")
+        .arg("-i")
+        .arg(&list_path)
+        .arg("-c")
+        .arg("copy")
+        .arg(&output_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+    let _ = fs::remove_dir_all(&temp_dir);
+    let _ = app.emit("render-progress", 1.0_f64);
+
+    if output.status.success() && output_path.exists() {
+        Ok(ProcessResult {
+            success: true,
+            message: format!("Merged {} segments", valid_segments.len()),
             output_path: output_path.to_str().map(str::to_string),
         })
     } else {

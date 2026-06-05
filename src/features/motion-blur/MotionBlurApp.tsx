@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Settings02Icon } from "@hugeicons/core-free-icons";
+import packageJson from "@/package.json";
+import { checkForAppUpdates } from "@/lib/updater";
 import {
   checkMotionRuntime,
   checkFfmpegRuntime,
@@ -14,7 +17,7 @@ import {
   renderJob,
   validateFfmpeg,
 } from "./api";
-import { AppSettingsDialog } from "./AppSettingsDialog";
+import { AppSettingsDialog, type UpdateState } from "./AppSettingsDialog";
 import { JobSwitcher } from "./JobSwitcher";
 import { pickFfmpeg, pickVideo } from "./file-dialog";
 import { MotionSettingsPanel } from "./MotionSettingsPanel";
@@ -34,6 +37,14 @@ import {
 
 const savedFfmpeg = localStorage.getItem("xype.ffmpegPath") ?? "";
 const appWindow = getCurrentWindow();
+const defaultUpdateState: UpdateState = {
+  currentVersion: packageJson.version,
+  lastChecked: null,
+  message: "Updates are checked automatically when xype starts.",
+  progress: 0,
+  status: "idle",
+  updateVersion: null,
+};
 
 export function MotionBlurApp() {
   const [ffmpegPath, setFfmpegPath] = useState(savedFfmpeg);
@@ -52,9 +63,24 @@ export function MotionBlurApp() {
   const [preset, setPreset] = useState<BlurPreset>("recommended");
   const [mode, setMode] = useState<JobMode>("motion");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState>(defaultUpdateState);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
+    const preventContextMenu = (event: MouseEvent) => event.preventDefault();
+    const preventDevtoolsShortcuts = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (event.key === "F12" || (event.ctrlKey && event.shiftKey && ["i", "j", "c"].includes(key))) {
+        event.preventDefault();
+      }
+    };
+
+    document.addEventListener("contextmenu", preventContextMenu);
+    document.addEventListener("keydown", preventDevtoolsShortcuts);
+    getVersion()
+      .then((currentVersion) => setUpdateState((state) => ({ ...state, currentVersion })))
+      .catch(() => undefined);
+    void checkForUpdates(false);
     checkFfmpegRuntime()
       .then((path) => {
         if (path) {
@@ -76,6 +102,8 @@ export function MotionBlurApp() {
     ]);
 
     return () => {
+      document.removeEventListener("contextmenu", preventContextMenu);
+      document.removeEventListener("keydown", preventDevtoolsShortcuts);
       void cleanups.then(([ffmpegUnlisten, runtimeUnlisten, renderUnlisten]) => {
         ffmpegUnlisten();
         runtimeUnlisten();
@@ -83,6 +111,74 @@ export function MotionBlurApp() {
       });
     };
   }, []);
+
+  async function checkForUpdates(userInitiated: boolean) {
+    setUpdateState((state) => ({
+      ...state,
+      message: "Checking GitHub Releases for a signed update.",
+      progress: 0,
+      status: "checking",
+    }));
+
+    const result = await checkForAppUpdates({
+      onProgress: (progress) => {
+        setUpdateState((state) => ({
+          ...state,
+          message: `Downloading update (${progress}%).`,
+          progress,
+          status: "downloading",
+        }));
+      },
+      userInitiated,
+    });
+    const checkedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    if (result.status === "latest") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: "You are on the latest version.",
+        progress: 0,
+        status: "latest",
+        updateVersion: null,
+      }));
+    } else if (result.status === "available") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: `Version ${result.version} is available.`,
+        progress: 0,
+        status: "available",
+        updateVersion: result.version,
+      }));
+    } else if (result.status === "cancelled") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: `Version ${result.version} is available. Install was skipped.`,
+        progress: 0,
+        status: "available",
+        updateVersion: result.version,
+      }));
+    } else if (result.status === "installed") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: `Version ${result.version} installed. Restarting xype.`,
+        progress: 100,
+        status: "downloading",
+        updateVersion: result.version,
+      }));
+    } else {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: result.message,
+        progress: 0,
+        status: "error",
+      }));
+    }
+  }
 
   useEffect(() => {
     localStorage.setItem("xype.ffmpegPath", ffmpegPath);
@@ -249,6 +345,7 @@ export function MotionBlurApp() {
         </div>
 
         <StatusPanel
+          actionLabel={mode === "trim" ? "Export Segment" : "Create Copy"}
           canRender={canRender}
           modeLabel={jobDefinitions.find((job) => job.id === mode)?.label ?? "Video"}
           onRender={render}
@@ -264,6 +361,9 @@ export function MotionBlurApp() {
         ffmpegState={ffmpegState}
         ffmpegValid={ffmpegValid}
         installProgress={installProgress}
+        onCheckForUpdates={() => {
+          void checkForUpdates(true);
+        }}
         onInstallFfmpeg={installFfmpeg}
         onInstallRuntime={installRuntime}
         onOpenChange={setSettingsOpen}
@@ -274,6 +374,7 @@ export function MotionBlurApp() {
         onSetFfmpegPath={setFfmpegPath}
         open={settingsOpen}
         runtimeState={runtimeState}
+        updateState={updateState}
       />
     </main>
   );
