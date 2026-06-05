@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Settings02Icon } from "@hugeicons/core-free-icons";
 import packageJson from "@/package.json";
-import { checkForAppUpdates } from "@/lib/updater";
+import { checkForAppUpdates, installAppUpdate } from "@/lib/updater";
 import {
   checkMotionRuntime,
   checkFfmpegRuntime,
@@ -84,7 +84,7 @@ export function MotionBlurApp() {
     getVersion()
       .then((currentVersion) => setUpdateState((state) => ({ ...state, currentVersion })))
       .catch(() => undefined);
-    void checkForUpdates(false);
+    void checkForUpdates();
     checkFfmpegRuntime()
       .then((path) => {
         if (path) {
@@ -116,7 +116,7 @@ export function MotionBlurApp() {
     };
   }, []);
 
-  async function checkForUpdates(userInitiated: boolean) {
+  async function checkForUpdates() {
     setUpdateState((state) => ({
       ...state,
       message: "Checking GitHub Releases for a signed update.",
@@ -124,24 +124,14 @@ export function MotionBlurApp() {
       status: "checking",
     }));
 
-    const result = await checkForAppUpdates({
-      onProgress: (progress) => {
-        setUpdateState((state) => ({
-          ...state,
-          message: `Downloading update (${progress}%).`,
-          progress,
-          status: "downloading",
-        }));
-      },
-      userInitiated,
-    });
+    const result = await checkForAppUpdates();
     const checkedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
     if (result.status === "latest") {
       setUpdateState((state) => ({
         ...state,
         lastChecked: checkedAt,
-        message: "You are on the latest version.",
+        message: "No update needed. You are running the latest release.",
         progress: 0,
         status: "latest",
         updateVersion: null,
@@ -150,7 +140,7 @@ export function MotionBlurApp() {
       setUpdateState((state) => ({
         ...state,
         lastChecked: checkedAt,
-        message: `Version ${result.version} is available.`,
+        message: result.body ? `Version ${result.version} is ready to install.` : `Version ${result.version} is available.`,
         progress: 0,
         status: "available",
         updateVersion: result.version,
@@ -171,6 +161,73 @@ export function MotionBlurApp() {
         message: `Version ${result.version} installed. Restarting xype.`,
         progress: 100,
         status: "downloading",
+        updateVersion: result.version,
+      }));
+    } else {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: result.message,
+        progress: 0,
+        status: "error",
+      }));
+    }
+  }
+
+  async function installAvailableUpdate() {
+    setUpdateState((state) => ({
+      ...state,
+      message: "Preparing the signed update.",
+      progress: 0,
+      status: "downloading",
+    }));
+
+    const result = await installAppUpdate({
+      onProgress: (progress) => {
+        setUpdateState((state) => ({
+          ...state,
+          message: `Installing update (${progress}%).`,
+          progress,
+          status: "downloading",
+        }));
+      },
+    });
+    const checkedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+    if (result.status === "latest") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: "No update needed. You are running the latest release.",
+        progress: 0,
+        status: "latest",
+        updateVersion: null,
+      }));
+    } else if (result.status === "cancelled") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: `Version ${result.version} is still available.`,
+        progress: 0,
+        status: "available",
+        updateVersion: result.version,
+      }));
+    } else if (result.status === "installed") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: `Version ${result.version} installed. Restarting xype.`,
+        progress: 100,
+        status: "downloading",
+        updateVersion: result.version,
+      }));
+    } else if (result.status === "available") {
+      setUpdateState((state) => ({
+        ...state,
+        lastChecked: checkedAt,
+        message: `Version ${result.version} is ready to install.`,
+        progress: 0,
+        status: "available",
         updateVersion: result.version,
       }));
     } else {
@@ -373,7 +430,10 @@ export function MotionBlurApp() {
         ffmpegValid={ffmpegValid}
         installProgress={installProgress}
         onCheckForUpdates={() => {
-          void checkForUpdates(true);
+          void checkForUpdates();
+        }}
+        onInstallUpdate={() => {
+          void installAvailableUpdate();
         }}
         onInstallFfmpeg={installFfmpeg}
         onInstallRuntime={installRuntime}

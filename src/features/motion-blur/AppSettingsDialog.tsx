@@ -29,6 +29,7 @@ type Props = {
   onCheckForUpdates: () => void;
   onInstallFfmpeg: () => void;
   onInstallRuntime: () => void;
+  onInstallUpdate: () => void;
   onOpenChange: (open: boolean) => void;
   onPickFfmpeg: () => void;
   onSetFfmpegPath: (value: string) => void;
@@ -49,6 +50,7 @@ export function AppSettingsDialog({
   onCheckForUpdates,
   onInstallFfmpeg,
   onInstallRuntime,
+  onInstallUpdate,
   onOpenChange,
   onPickFfmpeg,
   onSetFfmpegPath,
@@ -148,7 +150,11 @@ export function AppSettingsDialog({
                 </section>
               </>
             ) : (
-              <UpdatesPanel onCheckForUpdates={onCheckForUpdates} updateState={updateState} />
+              <UpdatesPanel
+                onCheckForUpdates={onCheckForUpdates}
+                onInstallUpdate={onInstallUpdate}
+                updateState={updateState}
+              />
             )}
           </div>
         </div>
@@ -159,11 +165,13 @@ export function AppSettingsDialog({
 
 type UpdatesPanelProps = {
   onCheckForUpdates: () => void;
+  onInstallUpdate: () => void;
   updateState: UpdateState;
 };
 
-function UpdatesPanel({ onCheckForUpdates, updateState }: UpdatesPanelProps) {
+function UpdatesPanel({ onCheckForUpdates, onInstallUpdate, updateState }: UpdatesPanelProps) {
   const busy = updateState.status === "checking" || updateState.status === "downloading";
+  const canInstall = updateState.status === "available" && updateState.updateVersion;
 
   return (
     <div className="space-y-3">
@@ -187,18 +195,28 @@ function UpdatesPanel({ onCheckForUpdates, updateState }: UpdatesPanelProps) {
         </div>
       </section>
 
-      <section className="rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium">{statusLabel(updateState)}</p>
-            <p className="mt-1 text-xs text-white/40">{updateState.message}</p>
+      <section className={`${statusShell(updateState.status)} rounded-md border p-4`}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className={`${statusDot(updateState.status)} size-2 rounded-full`} />
+              <p className="text-sm font-medium">{statusLabel(updateState)}</p>
+            </div>
+            <p className="mt-1 text-xs text-white/48">{updateState.message}</p>
           </div>
-          <span className="rounded bg-white/[0.07] px-2 py-1 text-[11px] text-white/50">
-            {updateState.status}
-          </span>
+          <StatusBadge status={updateState.status} />
         </div>
-        {updateState.status === "downloading" && (
+
+        {(updateState.status === "checking" || updateState.status === "downloading") && (
           <Progress className="mt-4" value={updateState.progress} />
+        )}
+
+        {canInstall && (
+          <div className="mt-4 flex justify-end">
+            <Button onClick={onInstallUpdate} type="button">
+              Install update
+            </Button>
+          </div>
         )}
       </section>
     </div>
@@ -226,6 +244,39 @@ function statusLabel(updateState: UpdateState) {
   if (updateState.status === "latest") return "Up to date";
   if (updateState.status === "error") return "Update check failed";
   return "Automatic updates";
+}
+
+function statusShell(status: UpdateState["status"]) {
+  if (status === "available") return "border-emerald-400/25 bg-emerald-400/[0.055]";
+  if (status === "latest") return "border-white/[0.09] bg-white/[0.035]";
+  if (status === "checking" || status === "downloading") return "border-sky-300/20 bg-sky-300/[0.045]";
+  if (status === "error") return "border-red-400/25 bg-red-400/[0.055]";
+  return "border-white/[0.075] bg-white/[0.025]";
+}
+
+function statusDot(status: UpdateState["status"]) {
+  if (status === "available") return "bg-emerald-300";
+  if (status === "latest") return "bg-white/65";
+  if (status === "checking" || status === "downloading") return "bg-sky-300";
+  if (status === "error") return "bg-red-300";
+  return "bg-white/30";
+}
+
+function StatusBadge({ status }: { status: UpdateState["status"] }) {
+  return (
+    <span className="shrink-0 rounded bg-white/[0.07] px-2 py-1 text-[11px] text-white/55">
+      {statusText(status)}
+    </span>
+  );
+}
+
+function statusText(status: UpdateState["status"]) {
+  if (status === "available") return "Update required";
+  if (status === "latest") return "Up to date";
+  if (status === "checking") return "Checking";
+  if (status === "downloading") return "Installing";
+  if (status === "error") return "Failed";
+  return "Idle";
 }
 
 function formatVersion(version: string | null) {

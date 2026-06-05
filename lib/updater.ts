@@ -1,6 +1,6 @@
 import { ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 
 type CheckForAppUpdatesOptions = {
   onProgress?: (progress: number) => void;
@@ -14,21 +14,45 @@ export type AppUpdateResult =
   | { status: "cancelled"; version: string }
   | { status: "error"; message: string };
 
-export async function checkForAppUpdates({
-  onProgress,
-}: CheckForAppUpdatesOptions = {}): Promise<AppUpdateResult> {
-  try {
-    const update = await check();
+let pendingUpdate: Update | null = null;
 
-    if (!update) {
+export async function checkForAppUpdates(): Promise<AppUpdateResult> {
+  try {
+    pendingUpdate = await check();
+
+    if (!pendingUpdate) {
       return { status: "latest" };
     }
 
-    const releaseNotes = update.body?.trim();
+    return {
+      status: "available",
+      version: pendingUpdate.version,
+      body: pendingUpdate.body?.trim(),
+    };
+  } catch (error) {
+    return {
+      status: "error",
+      message: error instanceof Error ? error.message : "Failed to check for updates.",
+    };
+  }
+}
+
+export async function installAppUpdate({
+  onProgress,
+}: CheckForAppUpdatesOptions = {}): Promise<AppUpdateResult> {
+  try {
+    const update = pendingUpdate ?? (await check());
+    pendingUpdate = update;
+
+    if (!pendingUpdate) {
+      return { status: "latest" };
+    }
+
+    const releaseNotes = pendingUpdate.body?.trim();
     const shouldInstall = await ask(
       releaseNotes
-        ? `xype ${update.version} is available.\n\n${releaseNotes}\n\nInstall now?`
-        : `xype ${update.version} is available.\n\nInstall now?`,
+        ? `xype ${pendingUpdate.version} is available.\n\n${releaseNotes}\n\nInstall now?`
+        : `xype ${pendingUpdate.version} is available.\n\nInstall now?`,
       {
         title: "Update Available",
         kind: "info",
@@ -38,12 +62,12 @@ export async function checkForAppUpdates({
     );
 
     if (!shouldInstall) {
-      return { status: "cancelled", version: update.version };
+      return { status: "cancelled", version: pendingUpdate.version };
     }
 
     let downloaded = 0;
     let total: number | undefined;
-    await update.downloadAndInstall((event) => {
+    await pendingUpdate.downloadAndInstall((event) => {
       if (event.event === "Started") {
         total = event.data.contentLength;
         onProgress?.(0);
@@ -55,7 +79,7 @@ export async function checkForAppUpdates({
       }
     });
     await relaunch();
-    return { status: "installed", version: update.version };
+    return { status: "installed", version: pendingUpdate.version };
   } catch (error) {
     return {
       status: "error",
