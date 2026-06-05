@@ -9,21 +9,12 @@
     "beforeBuildCommand": "bun run build",
     "frontendDist": "../dist"
   },
-  "app": {
-    "windows": [
-      {
-        "title": "xype",
-        "width": 800,
-        "height": 600
-      }
-    ],
-    "security": {
-      "csp": null
-    }
-  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": {
+      "resources/motion-runtime": "motion-runtime"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -31,5 +22,22 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "xype",
+        "width": 800,
+        "height": 600,
+        "decorations": false
+      }
+    ],
+    "security": {
+      "csp": null,
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["**"]
+      }
+    }
   }
 }
