@@ -21,6 +21,7 @@ import { AppSettingsDialog, type UpdateState } from "./AppSettingsDialog";
 import { JobSwitcher } from "./JobSwitcher";
 import { pickFfmpeg, pickVideo } from "./file-dialog";
 import { MotionSettingsPanel } from "./MotionSettingsPanel";
+import { OnboardingTour } from "./OnboardingTour";
 import { SourcePanel } from "./SourcePanel";
 import { StatusPanel } from "./StatusPanel";
 import { WindowControls } from "./WindowControls";
@@ -63,6 +64,9 @@ export function MotionBlurApp() {
   const [preset, setPreset] = useState<BlurPreset>("recommended");
   const [mode, setMode] = useState<JobMode>("motion");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(
+    () => localStorage.getItem("xype.onboardingComplete") !== "1",
+  );
   const [updateState, setUpdateState] = useState<UpdateState>(defaultUpdateState);
 
   useEffect(() => {
@@ -288,7 +292,9 @@ export function MotionBlurApp() {
           onDoubleClick={() => void appWindow.toggleMaximize()}
         >
           <img alt="xype" className="h-5 w-5" src="/logo.png" />
-          <JobSwitcher mode={mode} onChange={setMode} />
+          <div data-tour="modules">
+            <JobSwitcher mode={mode} onChange={setMode} />
+          </div>
         </div>
         <div className="flex items-center gap-2 pl-2 text-[11px] text-white/45">
           {status && <span>{status}</span>}
@@ -306,6 +312,7 @@ export function MotionBlurApp() {
           <button
             aria-label="Settings"
             className="flex size-8 items-center justify-center rounded text-white/45 hover:bg-white/[0.07] hover:text-white"
+            data-tour="settings"
             onClick={() => setSettingsOpen(true)}
             onMouseDown={(event) => event.stopPropagation()}
             title="Settings"
@@ -319,21 +326,23 @@ export function MotionBlurApp() {
 
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px]">
-          <SourcePanel
-            inputFps={inputFps}
-            onChangeSettings={setSettings}
-            onPickVideo={async () => {
-              const selected = await pickVideo();
-              if (selected) {
-                setVideoPath(selected);
-                setOutputPath(null);
-              }
-            }}
-            settings={settings}
-            videoPath={videoPath}
-            mode={mode}
-          />
-          <aside className="min-h-0 border-l border-white/[0.075] bg-[#17181b]">
+          <div className="min-h-0" data-tour="source">
+            <SourcePanel
+              inputFps={inputFps}
+              onChangeSettings={setSettings}
+              onPickVideo={async () => {
+                const selected = await pickVideo();
+                if (selected) {
+                  setVideoPath(selected);
+                  setOutputPath(null);
+                }
+              }}
+              settings={settings}
+              videoPath={videoPath}
+              mode={mode}
+            />
+          </div>
+          <aside className="min-h-0 border-l border-white/[0.075] bg-[#17181b]" data-tour="properties">
             <MotionSettingsPanel
               mode={mode}
               onChange={setSettings}
@@ -344,16 +353,18 @@ export function MotionBlurApp() {
           </aside>
         </div>
 
-        <StatusPanel
-          actionLabel={mode === "trim" ? "Export Segment" : "Create Copy"}
-          canRender={canRender}
-          modeLabel={jobDefinitions.find((job) => job.id === mode)?.label ?? "Video"}
-          onRender={render}
-          outputPath={outputPath}
-          processing={processing}
-          progress={renderProgress}
-          status={status}
-        />
+        <div data-tour="export">
+          <StatusPanel
+            actionLabel={mode === "trim" ? "Export Segment" : "Create Copy"}
+            canRender={canRender}
+            modeLabel={jobDefinitions.find((job) => job.id === mode)?.label ?? "Video"}
+            onRender={render}
+            outputPath={outputPath}
+            processing={processing}
+            progress={renderProgress}
+            status={status}
+          />
+        </div>
       </section>
       <AppSettingsDialog
         ffmpegPath={ffmpegPath}
@@ -372,10 +383,15 @@ export function MotionBlurApp() {
           if (selected) setFfmpegPath(selected);
         }}
         onSetFfmpegPath={setFfmpegPath}
+        onShowOnboarding={() => {
+          setSettingsOpen(false);
+          setOnboardingOpen(true);
+        }}
         open={settingsOpen}
         runtimeState={runtimeState}
         updateState={updateState}
       />
+      {onboardingOpen && <OnboardingTour onClose={() => setOnboardingOpen(false)} />}
     </main>
   );
 }

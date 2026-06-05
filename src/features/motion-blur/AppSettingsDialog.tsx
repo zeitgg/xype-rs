@@ -32,6 +32,7 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   onPickFfmpeg: () => void;
   onSetFfmpegPath: (value: string) => void;
+  onShowOnboarding: () => void;
   open: boolean;
   runtimeState: RuntimeState;
   updateState: UpdateState;
@@ -51,6 +52,7 @@ export function AppSettingsDialog({
   onOpenChange,
   onPickFfmpeg,
   onSetFfmpegPath,
+  onShowOnboarding,
   open,
   runtimeState,
   updateState,
@@ -133,6 +135,16 @@ export function AppSettingsDialog({
                       Pick
                     </Button>
                   </div>
+                </section>
+
+                <section className="flex items-center justify-between gap-3 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
+                  <div>
+                    <p className="text-sm font-medium">Tutorial</p>
+                    <p className="text-xs text-white/40">Replay the quick app walkthrough.</p>
+                  </div>
+                  <Button onClick={onShowOnboarding} type="button" variant="outline">
+                    Show tutorial
+                  </Button>
                 </section>
               </>
             ) : (
