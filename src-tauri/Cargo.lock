@@ -5759,7 +5759,7 @@ dependencies = [
 
 [[package]]
 name = "xype"
-version = "1.0.0-beta"
+version = "1.0.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
