@@ -22,7 +22,7 @@ export function SourcePanel({
   const showTrimViewer = mode === "trim" && Boolean(videoPath);
 
   return (
-    <section className="flex min-h-0 flex-col bg-[#101114]">
+    <section className="flex h-full min-h-0 flex-col bg-[#101114]">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-white/[0.075] px-3">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">Source</h2>
         <span className="max-w-[55%] truncate text-[11px] text-white/35">

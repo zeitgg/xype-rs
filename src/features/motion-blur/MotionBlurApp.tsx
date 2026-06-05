@@ -292,7 +292,7 @@ export function MotionBlurApp() {
           onDoubleClick={() => void appWindow.toggleMaximize()}
         >
           <img alt="xype" className="h-5 w-5" src="/logo.png" />
-          <div data-tour="modules">
+          <div className="h-full min-w-0" data-tour="modules">
             <JobSwitcher mode={mode} onChange={setMode} />
           </div>
         </div>
@@ -326,7 +326,7 @@ export function MotionBlurApp() {
 
       <section className="flex min-h-0 flex-1 flex-col">
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px]">
-          <div className="min-h-0" data-tour="source">
+          <div className="h-full min-h-0" data-tour="source">
             <SourcePanel
               inputFps={inputFps}
               onChangeSettings={setSettings}
@@ -353,7 +353,7 @@ export function MotionBlurApp() {
           </aside>
         </div>
 
-        <div data-tour="export">
+        <div className="shrink-0" data-tour="export">
           <StatusPanel
             actionLabel={mode === "trim" ? "Export Segment" : "Create Copy"}
             canRender={canRender}
@@ -391,7 +391,18 @@ export function MotionBlurApp() {
         runtimeState={runtimeState}
         updateState={updateState}
       />
-      {onboardingOpen && <OnboardingTour onClose={() => setOnboardingOpen(false)} />}
+      {onboardingOpen && (
+        <OnboardingTour
+          ffmpegProgress={ffmpegProgress}
+          ffmpegState={ffmpegState}
+          ffmpegValid={ffmpegValid}
+          installProgress={installProgress}
+          onClose={() => setOnboardingOpen(false)}
+          onInstallFfmpeg={installFfmpeg}
+          onInstallRuntime={installRuntime}
+          runtimeState={runtimeState}
+        />
+      )}
     </main>
   );
 }
