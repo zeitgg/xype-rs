@@ -36,8 +36,8 @@ const interpolationTunings: MotionSettings["interpolationTuning"][] = ["weak", "
 const interpolationAlgorithms: MotionSettings["interpolationAlgorithm"][] = [23, 13, 2];
 const maskPresets: Array<{ id: MotionSettings["maskPreset"]; label: string }> = [
   { id: "none", label: "No mask" },
-  { id: "valorant", label: "VALORANT HUD" },
-  { id: "center", label: "Center focus" },
+  { id: "valorant-minimal", label: "VALORANT minimal" },
+  { id: "valorant-detailed", label: "VALORANT detailed" },
   { id: "custom", label: "Custom PNG" },
 ];
 const weightingLabels: Record<MotionSettings["blendWeighting"], string> = {
@@ -225,7 +225,11 @@ export function MotionSettingsPanel({
                   Pick PNG
                 </Button>
                 <span className="min-w-0 truncate text-[11px] text-white/35">
-                  {settings.maskPath || "Mask rendering will be wired later."}
+                  {settings.maskPreset === "custom"
+                    ? settings.maskPath || "Pick a PNG mask."
+                    : settings.maskPreset === "none"
+                      ? "No mask selected."
+                      : "Built-in mask included with xype."}
                 </span>
               </div>
             </PanelGroup>

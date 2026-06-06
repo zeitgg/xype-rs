@@ -26,7 +26,7 @@ export type MotionSettings = {
   blendWeighting: "equal" | "gaussian" | "pyramid" | "vegas";
   flowblurEnabled: boolean;
   flowblurAmount: number;
-  maskPreset: "none" | "valorant" | "center" | "custom";
+  maskPreset: "none" | "valorant-minimal" | "valorant-detailed" | "custom";
   maskPath: string;
   encoder: "libx264" | "h264_nvenc";
   crf: number;
