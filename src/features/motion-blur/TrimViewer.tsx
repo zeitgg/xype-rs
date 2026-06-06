@@ -6,6 +6,7 @@ import {
   ArrowRight02Icon,
   PauseIcon,
   PlayIcon,
+  PlusSignIcon,
   Scissor01Icon,
 } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ type Props = {
 };
 
 type TrimPatch = Partial<Pick<MotionSettings, "trimStart" | "trimEnd">>;
+const MIN_SEGMENT_SECONDS = 0.05;
 
 export function TrimViewer({
   inputFps,
@@ -34,18 +36,31 @@ export function TrimViewer({
   const [currentTime, setCurrentTime] = useState(0);
   const [pendingStart, setPendingStart] = useState<number | null>(null);
   const [playing, setPlaying] = useState(false);
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
   const sourceUrl = useMemo(() => convertFileSrc(videoPath), [videoPath]);
   const frameStep = inputFps ? 1 / inputFps : 1 / 30;
+  const minGap = Math.max(MIN_SEGMENT_SECONDS, frameStep);
   const trimStart = clamp(settings.trimStart, 0, Math.max(duration, settings.trimStart));
-  const trimEnd = clamp(settings.trimEnd, trimStart + frameStep, Math.max(duration, settings.trimEnd));
+  const trimEnd = clamp(settings.trimEnd, trimStart + minGap, Math.max(duration, settings.trimEnd));
   const segments = settings.trimSegments;
   const selectedLength = getTotalSegmentLength(segments, trimStart, trimEnd);
+  const selectedSegment = selectedSegmentId
+    ? segments.find((segment) => segment.id === selectedSegmentId) ?? null
+    : null;
 
   useEffect(() => {
     setCurrentTime(0);
     setPendingStart(null);
     setPlaying(false);
+    setSelectedSegmentId(null);
   }, [videoPath]);
+
+  useEffect(() => {
+    if (!selectedSegmentId) return;
+    if (!segments.some((segment) => segment.id === selectedSegmentId)) {
+      setSelectedSegmentId(null);
+    }
+  }, [segments, selectedSegmentId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -66,21 +81,46 @@ export function TrimViewer({
       } else if (event.key === "ArrowRight") {
         event.preventDefault();
         seek(currentTime + (event.shiftKey ? 1 : frameStep));
+      } else if (event.code === "KeyA") {
+        event.preventDefault();
+        addSegmentFromRange(trimStart, trimEnd);
+      } else if (event.key === "Delete" || event.key === "Backspace") {
+        if (selectedSegmentId) {
+          event.preventDefault();
+          removeSegment(selectedSegmentId);
+        }
       }
     };
 
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [currentTime, frameStep, settings, trimEnd, trimStart]);
+  }, [currentTime, frameStep, selectedSegmentId, settings, trimEnd, trimStart]);
 
   function updateTrim(next: TrimPatch) {
     const nextStart = next.trimStart ?? settings.trimStart;
     const nextEnd = next.trimEnd ?? settings.trimEnd;
-    const minGap = frameStep;
     onChangeSettings({
       ...settings,
       trimStart: clamp(nextStart, 0, Math.max(0, nextEnd - minGap)),
       trimEnd: clamp(nextEnd, nextStart + minGap, duration || nextEnd),
+    });
+  }
+
+  function updateRange(start: number, end: number) {
+    const nextStart = clamp(start, 0, Math.max(0, (duration || end) - minGap));
+    const nextEnd = clamp(end, nextStart + minGap, duration || end);
+    const nextSegments =
+      selectedSegmentId && pendingStart === null
+        ? settings.trimSegments.map((segment) =>
+            segment.id === selectedSegmentId ? { ...segment, start: nextStart, end: nextEnd } : segment,
+          )
+        : settings.trimSegments;
+
+    onChangeSettings({
+      ...settings,
+      trimStart: nextStart,
+      trimEnd: nextEnd,
+      trimSegments: sortSegments(nextSegments),
     });
   }
 
@@ -92,19 +132,34 @@ export function TrimViewer({
   }
 
   function setInPoint(time: number) {
-    setPendingStart(clamp(time, 0, duration || time));
-    updateTrim({ trimStart: time });
+    const start = clamp(time, 0, duration || time);
+    setSelectedSegmentId(null);
+    setPendingStart(start);
+    updateTrim({ trimStart: start, trimEnd: Math.max(start + minGap, settings.trimEnd) });
   }
 
   function setOutPoint(time: number) {
     const start = pendingStart ?? settings.trimStart;
     const end = clamp(time, 0, duration || time);
-    if (end <= start + frameStep) {
+    if (end <= start + minGap) {
       updateTrim({ trimEnd: end });
       return;
     }
 
-    const segment = {
+    if (selectedSegment && pendingStart === null) {
+      updateRange(selectedSegment.start, end);
+      return;
+    }
+
+    addSegmentFromRange(start, end);
+  }
+
+  function addSegmentFromRange(startTime: number, endTime: number) {
+    const start = clamp(Math.min(startTime, endTime), 0, duration || startTime);
+    const end = clamp(Math.max(startTime, endTime), start + minGap, duration || endTime);
+    if (end <= start + minGap) return;
+
+    const segment: TrimSegment = {
       id: crypto.randomUUID(),
       start,
       end,
@@ -115,7 +170,36 @@ export function TrimViewer({
       trimEnd: segment.end,
       trimSegments: sortSegments([...settings.trimSegments, segment]),
     });
+    setSelectedSegmentId(segment.id);
     setPendingStart(null);
+  }
+
+  function selectSegment(segment: TrimSegment) {
+    setPendingStart(null);
+    setSelectedSegmentId(segment.id);
+    updateTrim({ trimStart: segment.start, trimEnd: segment.end });
+    seek(segment.start);
+  }
+
+  function removeSegment(id: string) {
+    const nextSegments = settings.trimSegments.filter((segment) => segment.id !== id);
+    updateSegments(nextSegments);
+    if (selectedSegmentId === id) setSelectedSegmentId(null);
+  }
+
+  function splitAtPlayhead() {
+    const target = selectedSegment ?? segments.find((segment) => currentTime > segment.start && currentTime < segment.end);
+    if (!target || currentTime <= target.start + minGap || currentTime >= target.end - minGap) return;
+    const nextSegments = settings.trimSegments.flatMap((segment) =>
+      segment.id === target.id
+        ? [
+            { ...segment, id: crypto.randomUUID(), end: currentTime },
+            { ...segment, id: crypto.randomUUID(), start: currentTime },
+          ]
+        : [segment],
+    );
+    setSelectedSegmentId(null);
+    updateSegments(nextSegments);
   }
 
   function seek(time: number) {
@@ -201,12 +285,14 @@ export function TrimViewer({
           <div className="min-w-0 text-center">
             <div className="font-mono text-sm text-white/85">
               {pendingStart == null
-                ? segments.length > 0
-                  ? `${segments.length} segment${segments.length === 1 ? "" : "s"}`
-                  : "Current range"
+                ? selectedSegment
+                  ? `Segment ${segments.findIndex((segment) => segment.id === selectedSegment.id) + 1}`
+                  : segments.length > 0
+                    ? `${segments.length} segment${segments.length === 1 ? "" : "s"}`
+                    : "Full clip"
                 : `In at ${formatTime(pendingStart)}`}
             </div>
-            <div className="text-[11px] text-white/35">{formatTime(selectedLength)} selected for merged export</div>
+            <div className="text-[11px] text-white/35">{formatTime(selectedLength)} kept in export</div>
           </div>
 
           <div className="flex items-center justify-end gap-1.5">
@@ -224,25 +310,33 @@ export function TrimViewer({
         <Timeline
           currentTime={currentTime}
           duration={duration}
+          minGap={minGap}
           onSeek={seek}
-          onUpdateTrim={updateTrim}
+          onSelectSegment={selectSegment}
+          onUpdateRange={updateRange}
           pendingStart={pendingStart}
+          selectedSegmentId={selectedSegmentId}
           segments={segments}
           trimEnd={trimEnd}
           trimStart={trimStart}
         />
 
-        <div className="mt-3 grid grid-cols-[1fr_1fr_auto_auto] items-center gap-2">
-          <TimeReadout label={pendingStart == null ? "Current in" : "Pending in"} value={pendingStart ?? trimStart} />
-          <TimeReadout label="Current out" value={trimEnd} />
-          <Button className="h-9" onClick={() => seek(pendingStart ?? trimStart)} type="button" variant="outline">
-            Go in
+        <div className="mt-3 grid grid-cols-[1fr_1fr_auto_auto_auto] items-center gap-2">
+          <TimeReadout label={pendingStart == null ? "In" : "Pending in"} value={pendingStart ?? trimStart} />
+          <TimeReadout label="Out" value={trimEnd} />
+          <Button className="h-9" disabled={trimEnd <= trimStart + minGap} onClick={() => addSegmentFromRange(trimStart, trimEnd)} type="button" variant="outline">
+            <HugeiconsIcon className="mr-1.5 size-3.5" icon={PlusSignIcon} />
+            Add
+          </Button>
+          <Button className="h-9" disabled={!selectedSegment} onClick={splitAtPlayhead} type="button" variant="outline">
+            Split
           </Button>
           <Button
             className="h-9"
             onClick={() => {
               updateSegments([]);
               setPendingStart(null);
+              setSelectedSegmentId(null);
               updateTrim({ trimStart: 0, trimEnd: duration || settings.trimEnd });
             }}
             type="button"
@@ -259,9 +353,12 @@ export function TrimViewer({
 type TimelineProps = {
   currentTime: number;
   duration: number;
+  minGap: number;
   onSeek: (time: number) => void;
-  onUpdateTrim: (next: TrimPatch) => void;
+  onSelectSegment: (segment: TrimSegment) => void;
+  onUpdateRange: (start: number, end: number) => void;
   pendingStart: number | null;
+  selectedSegmentId: string | null;
   segments: TrimSegment[];
   trimEnd: number;
   trimStart: number;
@@ -270,28 +367,89 @@ type TimelineProps = {
 function Timeline({
   currentTime,
   duration,
+  minGap,
   onSeek,
-  onUpdateTrim,
+  onSelectSegment,
+  onUpdateRange,
   pendingStart,
+  selectedSegmentId,
   segments,
   trimEnd,
   trimStart,
 }: TimelineProps) {
+  const trackRef = useRef<HTMLDivElement>(null);
   const ticks = Array.from({ length: 11 }, (_, index) => index * 10);
 
+  function timeFromPointer(event: React.PointerEvent<HTMLElement>) {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect || !duration) return 0;
+    return clamp(((event.clientX - rect.left) / rect.width) * duration, 0, duration);
+  }
+
+  function beginDrag(
+    event: React.PointerEvent<HTMLElement>,
+    drag: "playhead" | "start" | "end",
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = event.currentTarget;
+    target.setPointerCapture(event.pointerId);
+
+    const move = (moveEvent: PointerEvent) => {
+      const rect = trackRef.current?.getBoundingClientRect();
+      if (!rect || !duration) return;
+      const time = clamp(((moveEvent.clientX - rect.left) / rect.width) * duration, 0, duration);
+      if (drag === "playhead") onSeek(time);
+      if (drag === "start") onUpdateRange(time, trimEnd);
+      if (drag === "end") onUpdateRange(trimStart, time);
+    };
+    const stop = () => {
+      target.removeEventListener("pointermove", move);
+      target.removeEventListener("pointerup", stop);
+      target.removeEventListener("pointercancel", stop);
+    };
+
+    target.addEventListener("pointermove", move);
+    target.addEventListener("pointerup", stop);
+    target.addEventListener("pointercancel", stop);
+  }
+
+  const hasSegments = segments.length > 0;
+  const rangeStart = pendingStart == null ? trimStart : Math.min(pendingStart, currentTime);
+  const rangeEnd = pendingStart == null ? trimEnd : Math.max(pendingStart, currentTime);
+
   return (
-    <div className="relative h-14 rounded border border-white/[0.075] bg-[#0b0c0f] px-2">
-      <div className="absolute inset-x-2 top-2 flex justify-between">
+    <div className="relative h-20 rounded border border-white/[0.075] bg-[#0b0c0f] px-3">
+      <div className="absolute inset-x-3 top-3 flex justify-between">
         {ticks.map((tick) => (
           <span key={tick} className="h-2 w-px bg-white/[0.12]" />
         ))}
       </div>
-      <div className="absolute inset-x-2 top-6 h-3 rounded bg-white/[0.08]">
-        {segments.length > 0 ? (
+      <div
+        className="absolute inset-x-3 top-8 h-5 cursor-crosshair rounded bg-white/[0.07]"
+        onPointerDown={(event) => {
+          onSeek(timeFromPointer(event));
+          beginDrag(event, "playhead");
+        }}
+        ref={trackRef}
+        role="slider"
+        tabIndex={-1}
+      >
+        {hasSegments ? (
           segments.map((segment) => (
-            <div
-              className="absolute h-full rounded bg-[#e8e8e8]"
+            <button
+              aria-label={`Select segment ${formatTime(segment.start)} to ${formatTime(segment.end)}`}
+              className={[
+                "absolute top-0 h-full rounded border transition",
+                selectedSegmentId === segment.id
+                  ? "border-white bg-white"
+                  : "border-white/15 bg-white/65 hover:bg-white/85",
+              ].join(" ")}
               key={segment.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelectSegment(segment);
+              }}
               style={{
                 left: `${percent(segment.start, duration)}%`,
                 width: `${Math.max(0, percent(segment.end, duration) - percent(segment.start, duration))}%`,
@@ -300,59 +458,47 @@ function Timeline({
           ))
         ) : (
           <div
-            className="absolute h-full rounded bg-[#e8e8e8]"
+            className="absolute top-0 h-full rounded bg-white/80"
             style={{
               left: `${percent(trimStart, duration)}%`,
               width: `${Math.max(0, percent(trimEnd, duration) - percent(trimStart, duration))}%`,
             }}
           />
         )}
-        {pendingStart != null && (
-          <div
-            className="absolute top-[-3px] h-[18px] rounded border border-white/70 bg-white/20"
-            style={{
-              left: `${percent(Math.min(pendingStart, currentTime), duration)}%`,
-              width: `${Math.abs(percent(currentTime, duration) - percent(pendingStart, duration))}%`,
-            }}
-          />
-        )}
         <div
-          className="absolute top-[-7px] h-7 w-px bg-white"
+          className="absolute top-[-4px] h-[28px] rounded border border-white/70 bg-white/18"
+          style={{
+            left: `${percent(rangeStart, duration)}%`,
+            width: `${Math.max(0, percent(rangeEnd, duration) - percent(rangeStart, duration))}%`,
+          }}
+        />
+        <button
+          aria-label="Drag trim in"
+          className="absolute top-[-8px] z-20 h-9 w-3 -translate-x-1/2 rounded-sm border border-white/70 bg-[#17181b] shadow"
+          disabled={!duration}
+          onPointerDown={(event) => beginDrag(event, "start")}
+          style={{ left: `${percent(trimStart, duration)}%` }}
+          type="button"
+        />
+        <button
+          aria-label="Drag trim out"
+          className="absolute top-[-8px] z-20 h-9 w-3 -translate-x-1/2 rounded-sm border border-white/70 bg-[#17181b] shadow"
+          disabled={!duration || trimEnd <= minGap}
+          onPointerDown={(event) => beginDrag(event, "end")}
+          style={{ left: `${percent(trimEnd, duration)}%` }}
+          type="button"
+        />
+        <div
+          className="pointer-events-none absolute top-[-10px] z-10 h-10 w-px bg-white"
           style={{
             left: `${percent(currentTime, duration)}%`,
           }}
         />
       </div>
-      <input
-        aria-label="Trim start"
-        className="xype-trim-range absolute inset-x-2 top-3 z-20 h-9"
-        max={duration || 1}
-        min={0}
-        onChange={(event) => onUpdateTrim({ trimStart: Number(event.currentTarget.value) })}
-        step={0.01}
-        type="range"
-        value={trimStart}
-      />
-      <input
-        aria-label="Trim end"
-        className="xype-trim-range absolute inset-x-2 top-3 z-20 h-9"
-        max={duration || 1}
-        min={0}
-        onChange={(event) => onUpdateTrim({ trimEnd: Number(event.currentTarget.value) })}
-        step={0.01}
-        type="range"
-        value={trimEnd}
-      />
-      <input
-        aria-label="Playhead"
-        className="xype-range absolute inset-x-2 top-3 z-10 h-9"
-        max={duration || 1}
-        min={0}
-        onChange={(event) => onSeek(Number(event.currentTarget.value))}
-        step={0.01}
-        type="range"
-        value={currentTime}
-      />
+      <div className="absolute inset-x-3 bottom-2 flex justify-between font-mono text-[10px] text-white/28">
+        <span>{formatTime(0)}</span>
+        <span>{formatTime(duration)}</span>
+      </div>
     </div>
   );
 }

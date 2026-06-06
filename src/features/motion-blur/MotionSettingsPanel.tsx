@@ -1,5 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import { Delete02Icon } from "@hugeicons/core-free-icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -555,8 +555,6 @@ function MotionQueuePanel({ files, onAddFiles, onRemoveFile, onRunFiles }: Motio
 }
 
 function TrimSegmentPanel({ onSendToMotion, onUpdate, settings }: TrimSegmentPanelProps) {
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const activeSegment = {
     id: "active",
     start: settings.trimStart,
@@ -566,95 +564,40 @@ function TrimSegmentPanel({ onSendToMotion, onUpdate, settings }: TrimSegmentPan
     () => (settings.trimSegments.length > 0 ? settings.trimSegments : [activeSegment]),
     [settings.trimEnd, settings.trimSegments, settings.trimStart],
   );
-  const selectedSegments = useMemo(
-    () => visibleSegments.filter((segment) => selectedIds.includes(segment.id)),
-    [selectedIds, visibleSegments],
+  const totalDuration = useMemo(
+    () => visibleSegments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0),
+    [visibleSegments],
   );
-
-  useEffect(() => {
-    setSelectedIds((ids) => ids.filter((id) => visibleSegments.some((segment) => segment.id === id)));
-  }, [visibleSegments]);
-
-  useEffect(() => {
-    if (!contextMenu) return;
-
-    const close = () => setContextMenu(null);
-    window.addEventListener("click", close);
-    window.addEventListener("keydown", close);
-    return () => {
-      window.removeEventListener("click", close);
-      window.removeEventListener("keydown", close);
-    };
-  }, [contextMenu]);
 
   function removeSegment(id: string) {
     onUpdate(settings.trimSegments.filter((segment) => segment.id !== id));
-  }
-
-  function removeSelectedSegments() {
-    if (selectedSegments.length === 0 || settings.trimSegments.length === 0) return;
-    onUpdate(settings.trimSegments.filter((segment) => !selectedIds.includes(segment.id)));
-    setSelectedIds([]);
-  }
-
-  function addCurrentRange() {
-    if (settings.trimEnd <= settings.trimStart) return;
-    onUpdate([
-      ...settings.trimSegments,
-      {
-        id: crypto.randomUUID(),
-        start: settings.trimStart,
-        end: settings.trimEnd,
-      },
-    ]);
-  }
-
-  function toggleSegment(id: string) {
-    setSelectedIds((ids) =>
-      ids.includes(id) ? ids.filter((selectedId) => selectedId !== id) : [...ids, id],
-    );
-  }
-
-  function sendSelectedToMotion() {
-    setContextMenu(null);
-    onSendToMotion(selectedSegments.length > 0 ? selectedSegments : visibleSegments);
   }
 
   return (
     <div className="mt-3 space-y-3">
       <div className="rounded border border-white/[0.06] bg-black/15 p-3">
         <div className="flex justify-between text-xs">
-          <span className="text-white/38">Segments</span>
+          <span className="text-white/38">Kept pieces</span>
           <span className="font-mono text-white/70">{visibleSegments.length}</span>
         </div>
         <div className="mt-2 flex justify-between text-xs">
-          <span className="text-white/38">Selected</span>
-          <span className="font-mono text-white/70">
-            {selectedSegments.length > 0
-              ? formatSeconds(selectedSegments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0))
-              : "None"}
-          </span>
-        </div>
-        <div className="mt-2 flex justify-between border-t border-white/[0.06] pt-2 text-xs">
-          <span className="text-white/38">Export</span>
-          <span className="text-white/70">
-            {selectedSegments.length > 0 ? `${selectedSegments.length} selected` : "All segments"}
-          </span>
+          <span className="text-white/38">Output length</span>
+          <span className="font-mono text-white/70">{formatSeconds(totalDuration)}</span>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-[1fr_auto] gap-2">
         <Button
-          onClick={() => setSelectedIds(visibleSegments.map((segment) => segment.id))}
+          disabled={visibleSegments.length === 0}
+          onClick={() => onSendToMotion(visibleSegments)}
           size="sm"
           type="button"
-          variant="outline"
         >
-          Select all
+          Send to Motion Blur
         </Button>
         <Button
-          disabled={selectedIds.length === 0}
-          onClick={() => setSelectedIds([])}
+          disabled={settings.trimSegments.length === 0}
+          onClick={() => onUpdate([])}
           size="sm"
           type="button"
           variant="outline"
@@ -663,51 +606,12 @@ function TrimSegmentPanel({ onSendToMotion, onUpdate, settings }: TrimSegmentPan
         </Button>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          disabled={settings.trimSegments.length === 0 || selectedSegments.length === 0}
-          onClick={removeSelectedSegments}
-          size="sm"
-          type="button"
-          variant="outline"
-        >
-          Delete selected
-        </Button>
-        <Button
-          disabled={visibleSegments.length === 0}
-          onClick={sendSelectedToMotion}
-          size="sm"
-          type="button"
-        >
-          Send to Motion Blur
-        </Button>
-      </div>
-
       <div className="xype-scrollbar max-h-72 overflow-auto rounded border border-white/[0.075] bg-black/10">
         {visibleSegments.map((segment, index) => (
           <div
-            className={[
-              "grid grid-cols-[1.25rem_2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0",
-              selectedIds.includes(segment.id) ? "bg-white/[0.07]" : "hover:bg-white/[0.035]",
-            ].join(" ")}
+            className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0"
             key={segment.id}
-            onClick={() => toggleSegment(segment.id)}
-            onContextMenu={(event) => {
-              event.preventDefault();
-              if (!selectedIds.includes(segment.id)) setSelectedIds([segment.id]);
-              setContextMenu({ x: event.clientX, y: event.clientY });
-            }}
-            role="button"
-            tabIndex={0}
           >
-            <span
-              className={[
-                "size-3.5 rounded-sm border",
-                selectedIds.includes(segment.id)
-                  ? "border-white bg-white"
-                  : "border-white/25 bg-white/[0.025]",
-              ].join(" ")}
-            />
             <span className="rounded bg-white/[0.07] px-2 py-1 text-center text-[11px] text-white/65">
               {index + 1}
             </span>
@@ -732,36 +636,11 @@ function TrimSegmentPanel({ onSendToMotion, onUpdate, settings }: TrimSegmentPan
                 <HugeiconsIcon className="size-4" icon={Delete02Icon} />
               </button>
             ) : (
-              <button
-                aria-label="Add current range"
-                className="flex size-7 items-center justify-center rounded text-white/35 hover:bg-white/[0.06] hover:text-white/80"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  addCurrentRange();
-                }}
-                type="button"
-              >
-                <HugeiconsIcon className="size-4" icon={PlusSignIcon} />
-              </button>
+              <span className="text-center text-[11px] text-white/28">range</span>
             )}
           </div>
         ))}
       </div>
-
-      {contextMenu && (
-        <div
-          className="fixed z-50 w-48 rounded-md border border-white/[0.12] bg-[#17181b] p-1 shadow-2xl"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-        >
-          <button
-            className="w-full rounded px-2 py-2 text-left text-xs text-white/70 hover:bg-white/[0.07] hover:text-white"
-            onClick={sendSelectedToMotion}
-            type="button"
-          >
-            Send to Motion Blur
-          </button>
-        </div>
-      )}
     </div>
   );
 }

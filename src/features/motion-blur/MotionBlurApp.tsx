@@ -92,7 +92,7 @@ export function MotionBlurApp() {
   const [processing, setProcessing] = useState(false);
   const [currentJobLabel, setCurrentJobLabel] = useState<string | null>(null);
   const [status, setStatus] = useState("");
-  const [outputPath, setOutputPath] = useState<string | null>(null);
+  const [outputPaths, setOutputPaths] = useState<string[]>([]);
   const [settings, setSettings] = useState<MotionSettings>(defaultMotionSettings);
   const [motionQueueFiles, setMotionQueueFiles] = useState<string[]>([]);
   const [userPresets, setUserPresets] = useState<UserMotionPreset[]>(loadUserPresets);
@@ -109,6 +109,7 @@ export function MotionBlurApp() {
   );
   const [updateState, setUpdateState] = useState<UpdateState>(defaultUpdateState);
   const videoPath = videoPaths[mode];
+  const outputPath = outputPaths[outputPaths.length - 1] ?? null;
 
   useEffect(() => {
     modeRef.current = mode;
@@ -156,7 +157,7 @@ export function MotionBlurApp() {
         }
 
         setVideoForMode(modeRef.current, videos[0]);
-        setOutputPath(null);
+        setFinishedOutputs([]);
         if (videos.length > 1) {
           addMotionQueueFiles(videos);
           setStatus(`Added ${videos.length} clips to Motion Queue.`);
@@ -481,13 +482,13 @@ export function MotionBlurApp() {
     setProcessing(true);
     setCurrentJobLabel(renderJobLabel);
     setRenderProgress(0);
-    setOutputPath(null);
+    setFinishedOutputs([]);
     setStatus("Rendering");
 
     try {
       const result = await renderJob(renderMode, ffmpegPath, videoPath, renderSettings);
       setStatus(result.message);
-      setOutputPath(result.outputPath);
+      setFinishedOutputs(result.success && result.outputPath ? [result.outputPath] : []);
       setExportCompleteOpen(result.success && Boolean(result.outputPath));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -529,7 +530,7 @@ export function MotionBlurApp() {
 
     setProcessing(true);
     setRenderProgress(0);
-    setOutputPath(null);
+    setFinishedOutputs([]);
 
     const outputs: string[] = [];
     try {
@@ -563,7 +564,7 @@ export function MotionBlurApp() {
       }
 
       setStatus(`Finished ${outputs.length} motion blur ${outputs.length === 1 ? "clip" : "clips"}`);
-      setOutputPath(outputs[outputs.length - 1] ?? null);
+      setFinishedOutputs(outputs);
       setExportCompleteOpen(outputs.length > 0);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -595,7 +596,7 @@ export function MotionBlurApp() {
 
     setProcessing(true);
     setRenderProgress(0);
-    setOutputPath(null);
+    setFinishedOutputs([]);
 
     const outputs: string[] = [];
     try {
@@ -617,7 +618,7 @@ export function MotionBlurApp() {
 
       setMotionQueueFiles((queuedFiles) => queuedFiles.filter((file) => !validFiles.includes(file)));
       setStatus(`Finished ${outputs.length} motion blur ${outputs.length === 1 ? "clip" : "clips"}`);
-      setOutputPath(outputs[outputs.length - 1] ?? null);
+      setFinishedOutputs(outputs);
       setExportCompleteOpen(outputs.length > 0);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -638,6 +639,10 @@ export function MotionBlurApp() {
 
   function removeMotionQueueFile(path: string) {
     setMotionQueueFiles((files) => files.filter((file) => file !== path));
+  }
+
+  function setFinishedOutputs(paths: string[]) {
+    setOutputPaths(paths.filter(Boolean));
   }
 
   function setVideoForMode(targetMode: JobMode, path: string) {
@@ -731,7 +736,7 @@ export function MotionBlurApp() {
             className="rounded px-2 py-1 text-[11px] text-white/45 hover:bg-white/[0.07] hover:text-white"
             onClick={() => {
               setVideoForMode(mode, "");
-              setOutputPath(null);
+              setFinishedOutputs([]);
               setStatus("");
             }}
             type="button"
@@ -763,7 +768,7 @@ export function MotionBlurApp() {
                 const selected = await pickVideo();
                 if (selected) {
                   setVideoForMode(mode, selected);
-                  setOutputPath(null);
+                  setFinishedOutputs([]);
                 }
               }}
               settings={settings}
@@ -858,7 +863,7 @@ export function MotionBlurApp() {
       <ExportCompleteDialog
         onOpenChange={setExportCompleteOpen}
         open={exportCompleteOpen}
-        outputPath={outputPath}
+        outputPaths={outputPaths}
       />
       <JobProgressToast
         jobLabel={currentJobLabel ?? activeJobLabel}
