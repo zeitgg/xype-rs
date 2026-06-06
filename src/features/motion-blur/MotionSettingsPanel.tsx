@@ -1,6 +1,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
-import type { ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,12 +19,17 @@ import type { BlurPreset, JobMode, MotionSettings, TrimSegment, UserMotionPreset
 type Props = {
   encoderSupport: EncoderSupport | null;
   mode: JobMode;
+  motionQueueFiles: string[];
   onChange: (settings: MotionSettings) => void;
+  onAddMotionFiles: () => void;
   onExportPreset: () => void;
   onImportPreset: () => void;
   onPickMask: () => void;
   onPresetChange: (preset: BlurPreset) => void;
+  onRemoveMotionFile: (path: string) => void;
+  onRunMotionFiles: (paths: string[]) => void;
   onSavePreset: () => void;
+  onSendSegmentsToMotion: (segments: TrimSegment[]) => void;
   preset: BlurPreset;
   settings: MotionSettings;
   userPresets: UserMotionPreset[];
@@ -56,12 +61,17 @@ const presets: Array<{ id: BlurPreset; label: string; description: string }> = [
 export function MotionSettingsPanel({
   encoderSupport,
   mode,
+  motionQueueFiles,
+  onAddMotionFiles,
   onChange,
   onExportPreset,
   onImportPreset,
   onPickMask,
   onPresetChange,
+  onRemoveMotionFile,
+  onRunMotionFiles,
   onSavePreset,
+  onSendSegmentsToMotion,
   preset,
   settings,
   userPresets,
@@ -130,6 +140,13 @@ export function MotionSettingsPanel({
                 </Button>
               </div>
             </PanelGroup>
+
+            <MotionQueuePanel
+              files={motionQueueFiles}
+              onAddFiles={onAddMotionFiles}
+              onRemoveFile={onRemoveMotionFile}
+              onRunFiles={onRunMotionFiles}
+            />
 
             <PanelGroup title="Frame blending">
               <ToggleRow
@@ -283,6 +300,7 @@ export function MotionSettingsPanel({
             </p>
             {mode === "trim" && (
               <TrimSegmentPanel
+                onSendToMotion={onSendSegmentsToMotion}
                 onUpdate={updateSegments}
                 settings={settings}
               />
@@ -296,6 +314,7 @@ export function MotionSettingsPanel({
 }
 
 type TrimSegmentPanelProps = {
+  onSendToMotion: (segments: TrimSegment[]) => void;
   onUpdate: (segments: TrimSegment[]) => void;
   settings: MotionSettings;
 };
@@ -423,16 +442,159 @@ function SelectField<TValue extends string>({
   );
 }
 
-function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
+type MotionQueuePanelProps = {
+  files: string[];
+  onAddFiles: () => void;
+  onRemoveFile: (path: string) => void;
+  onRunFiles: (paths: string[]) => void;
+};
+
+function MotionQueuePanel({ files, onAddFiles, onRemoveFile, onRunFiles }: MotionQueuePanelProps) {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
+  const selectedFiles = selectedPaths.length > 0 ? files.filter((file) => selectedPaths.includes(file)) : files;
+
+  useEffect(() => {
+    setSelectedPaths((paths) => paths.filter((path) => files.includes(path)));
+  }, [files]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [contextMenu]);
+
+  function toggleFile(path: string) {
+    setSelectedPaths((paths) =>
+      paths.includes(path) ? paths.filter((selectedPath) => selectedPath !== path) : [...paths, path],
+    );
+  }
+
+  function runSelected() {
+    setContextMenu(null);
+    onRunFiles(selectedFiles);
+  }
+
+  return (
+    <PanelGroup title="Motion queue">
+      <div className="grid grid-cols-2 gap-2">
+        <Button onClick={onAddFiles} size="sm" type="button" variant="outline">
+          Add clips
+        </Button>
+        <Button disabled={selectedFiles.length === 0} onClick={runSelected} size="sm" type="button">
+          Render selected
+        </Button>
+      </div>
+      {files.length > 0 ? (
+        <div className="xype-scrollbar max-h-40 overflow-auto rounded border border-white/[0.075] bg-black/10">
+          {files.map((file, index) => (
+            <div
+              className={[
+                "grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0",
+                selectedPaths.includes(file) ? "bg-white/[0.07]" : "hover:bg-white/[0.035]",
+              ].join(" ")}
+              key={file}
+              onClick={() => toggleFile(file)}
+              onContextMenu={(event) => {
+                event.preventDefault();
+                if (!selectedPaths.includes(file)) setSelectedPaths([file]);
+                setContextMenu({ x: event.clientX, y: event.clientY });
+              }}
+              role="button"
+              tabIndex={0}
+            >
+              <span className="rounded bg-white/[0.07] px-2 py-1 text-center text-[11px] text-white/65">
+                {index + 1}
+              </span>
+              <div className="min-w-0">
+                <div className="truncate text-xs text-white/75">{fileName(file)}</div>
+                <div className="mt-0.5 truncate text-[11px] text-white/32">{file}</div>
+              </div>
+              <button
+                aria-label={`Remove ${fileName(file)}`}
+                className="flex size-7 items-center justify-center rounded text-white/35 hover:bg-white/[0.06] hover:text-white/80"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemoveFile(file);
+                }}
+                type="button"
+              >
+                <HugeiconsIcon className="size-4" icon={Delete02Icon} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs leading-5 text-white/35">
+          Add cut clips or existing video files when you want to batch render motion blur.
+        </p>
+      )}
+
+      {contextMenu && (
+        <div
+          className="fixed z-50 w-48 rounded-md border border-white/[0.12] bg-[#17181b] p-1 shadow-2xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full rounded px-2 py-2 text-left text-xs text-white/70 hover:bg-white/[0.07] hover:text-white"
+            onClick={runSelected}
+            type="button"
+          >
+            Render in Motion Blur
+          </button>
+        </div>
+      )}
+    </PanelGroup>
+  );
+}
+
+function TrimSegmentPanel({ onSendToMotion, onUpdate, settings }: TrimSegmentPanelProps) {
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const activeSegment = {
     id: "active",
     start: settings.trimStart,
     end: settings.trimEnd,
   };
-  const visibleSegments = settings.trimSegments.length > 0 ? settings.trimSegments : [activeSegment];
+  const visibleSegments = useMemo(
+    () => (settings.trimSegments.length > 0 ? settings.trimSegments : [activeSegment]),
+    [settings.trimEnd, settings.trimSegments, settings.trimStart],
+  );
+  const selectedSegments = useMemo(
+    () => visibleSegments.filter((segment) => selectedIds.includes(segment.id)),
+    [selectedIds, visibleSegments],
+  );
+
+  useEffect(() => {
+    setSelectedIds((ids) => ids.filter((id) => visibleSegments.some((segment) => segment.id === id)));
+  }, [visibleSegments]);
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const close = () => setContextMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("click", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [contextMenu]);
 
   function removeSegment(id: string) {
     onUpdate(settings.trimSegments.filter((segment) => segment.id !== id));
+  }
+
+  function removeSelectedSegments() {
+    if (selectedSegments.length === 0 || settings.trimSegments.length === 0) return;
+    onUpdate(settings.trimSegments.filter((segment) => !selectedIds.includes(segment.id)));
+    setSelectedIds([]);
   }
 
   function addCurrentRange() {
@@ -447,6 +609,17 @@ function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
     ]);
   }
 
+  function toggleSegment(id: string) {
+    setSelectedIds((ids) =>
+      ids.includes(id) ? ids.filter((selectedId) => selectedId !== id) : [...ids, id],
+    );
+  }
+
+  function sendSelectedToMotion() {
+    setContextMenu(null);
+    onSendToMotion(selectedSegments.length > 0 ? selectedSegments : visibleSegments);
+  }
+
   return (
     <div className="mt-3 space-y-3">
       <div className="rounded border border-white/[0.06] bg-black/15 p-3">
@@ -456,20 +629,85 @@ function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
         </div>
         <div className="mt-2 flex justify-between text-xs">
           <span className="text-white/38">Selected</span>
-          <span className="font-mono text-white/70">{formatSeconds(totalTrimLength(settings))}</span>
+          <span className="font-mono text-white/70">
+            {selectedSegments.length > 0
+              ? formatSeconds(selectedSegments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0))
+              : "None"}
+          </span>
         </div>
         <div className="mt-2 flex justify-between border-t border-white/[0.06] pt-2 text-xs">
           <span className="text-white/38">Export</span>
-          <span className="text-white/70">Merged file</span>
+          <span className="text-white/70">
+            {selectedSegments.length > 0 ? `${selectedSegments.length} selected` : "All segments"}
+          </span>
         </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          onClick={() => setSelectedIds(visibleSegments.map((segment) => segment.id))}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Select all
+        </Button>
+        <Button
+          disabled={selectedIds.length === 0}
+          onClick={() => setSelectedIds([])}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Clear
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Button
+          disabled={settings.trimSegments.length === 0 || selectedSegments.length === 0}
+          onClick={removeSelectedSegments}
+          size="sm"
+          type="button"
+          variant="outline"
+        >
+          Delete selected
+        </Button>
+        <Button
+          disabled={visibleSegments.length === 0}
+          onClick={sendSelectedToMotion}
+          size="sm"
+          type="button"
+        >
+          Send to Motion Blur
+        </Button>
       </div>
 
       <div className="xype-scrollbar max-h-72 overflow-auto rounded border border-white/[0.075] bg-black/10">
         {visibleSegments.map((segment, index) => (
           <div
-            className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0"
+            className={[
+              "grid grid-cols-[1.25rem_2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0",
+              selectedIds.includes(segment.id) ? "bg-white/[0.07]" : "hover:bg-white/[0.035]",
+            ].join(" ")}
             key={segment.id}
+            onClick={() => toggleSegment(segment.id)}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              if (!selectedIds.includes(segment.id)) setSelectedIds([segment.id]);
+              setContextMenu({ x: event.clientX, y: event.clientY });
+            }}
+            role="button"
+            tabIndex={0}
           >
+            <span
+              className={[
+                "size-3.5 rounded-sm border",
+                selectedIds.includes(segment.id)
+                  ? "border-white bg-white"
+                  : "border-white/25 bg-white/[0.025]",
+              ].join(" ")}
+            />
             <span className="rounded bg-white/[0.07] px-2 py-1 text-center text-[11px] text-white/65">
               {index + 1}
             </span>
@@ -485,7 +723,10 @@ function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
               <button
                 aria-label={`Remove segment ${index + 1}`}
                 className="flex size-7 items-center justify-center rounded text-white/35 hover:bg-white/[0.06] hover:text-white/80"
-                onClick={() => removeSegment(segment.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  removeSegment(segment.id);
+                }}
                 type="button"
               >
                 <HugeiconsIcon className="size-4" icon={Delete02Icon} />
@@ -494,7 +735,10 @@ function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
               <button
                 aria-label="Add current range"
                 className="flex size-7 items-center justify-center rounded text-white/35 hover:bg-white/[0.06] hover:text-white/80"
-                onClick={addCurrentRange}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  addCurrentRange();
+                }}
                 type="button"
               >
                 <HugeiconsIcon className="size-4" icon={PlusSignIcon} />
@@ -503,6 +747,21 @@ function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
           </div>
         ))}
       </div>
+
+      {contextMenu && (
+        <div
+          className="fixed z-50 w-48 rounded-md border border-white/[0.12] bg-[#17181b] p-1 shadow-2xl"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            className="w-full rounded px-2 py-2 text-left text-xs text-white/70 hover:bg-white/[0.07] hover:text-white"
+            onClick={sendSelectedToMotion}
+            type="button"
+          >
+            Send to Motion Blur
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -517,11 +776,8 @@ function formatSeconds(seconds: number) {
     .padStart(2, "0")}`;
 }
 
-function totalTrimLength(settings: MotionSettings) {
-  if (settings.trimSegments.length === 0) {
-    return Math.max(0, settings.trimEnd - settings.trimStart);
-  }
-  return settings.trimSegments.reduce((sum, segment) => sum + Math.max(0, segment.end - segment.start), 0);
+function fileName(path: string) {
+  return path.slice(Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/")) + 1) || path;
 }
 
 type NumberFieldProps = {

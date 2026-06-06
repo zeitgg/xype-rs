@@ -198,7 +198,11 @@ export function TrimViewer({
 
           <div className="min-w-0 text-center">
             <div className="font-mono text-sm text-white/85">
-              {pendingStart == null ? `${segments.length || 1} segment${segments.length === 1 ? "" : "s"}` : `In at ${formatTime(pendingStart)}`}
+              {pendingStart == null
+                ? segments.length > 0
+                  ? `${segments.length} segment${segments.length === 1 ? "" : "s"}`
+                  : "Current range"
+                : `In at ${formatTime(pendingStart)}`}
             </div>
             <div className="text-[11px] text-white/35">{formatTime(selectedLength)} selected for merged export</div>
           </div>

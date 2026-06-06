@@ -49,7 +49,7 @@ export function SourcePanel({
           </span>
           <span className="text-lg font-semibold">{videoPath ? job.label : "Choose video"}</span>
           <span className="mt-2 max-w-md break-all text-xs text-white/40">
-            {videoPath || `${job.description} Pick an MP4, MOV, MKV, AVI, or WebM file.`}
+            {videoPath || `${job.description} Drop a video here, or pick an MP4, MOV, MKV, AVI, or WebM file.`}
           </span>
           <span className="mt-5 rounded bg-white px-3 py-1.5 text-xs font-medium text-black shadow-sm">
             {videoPath ? "Change video" : "Browse files"}

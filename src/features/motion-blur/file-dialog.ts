@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 
 export function pickFfmpeg() {
   return invoke<string | null>("pick_file", { kind: "ffmpeg" });
@@ -7,6 +7,16 @@ export function pickFfmpeg() {
 
 export function pickVideo() {
   return invoke<string | null>("pick_file", { kind: "video" });
+}
+
+export async function pickVideos() {
+  const selected = await open({
+    multiple: true,
+    filters: [{ name: "Video files", extensions: ["mp4", "mov", "mkv", "avi", "webm"] }],
+  });
+
+  if (!selected) return [];
+  return Array.isArray(selected) ? selected : [selected];
 }
 
 export function pickMaskPng() {

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -18,13 +19,16 @@ import {
   checkEncoderSupport,
   checkMotionRuntime,
   checkFfmpegRuntime,
+  cleanupMotionQueueFile,
   getVideoFps,
   installFfmpegRuntime,
   installMotionRuntime,
   onFfmpegProgress,
   onRenderProgress,
   onRuntimeProgress,
+  renderMotionVideo,
   renderJob,
+  trimSegmentForMotion,
   type EncoderSupport,
   validateFfmpeg,
 } from "./api";
@@ -37,6 +41,7 @@ import {
   pickMaskPng,
   pickPresetFile,
   pickVideo,
+  pickVideos,
   readTextFile,
   savePresetFile,
   writeTextFile,
@@ -55,12 +60,14 @@ import {
   type JobMode,
   type MotionSettings,
   type RuntimeState,
+  type TrimSegment,
   type ToolState,
   type UserMotionPreset,
 } from "./types";
 
 const savedFfmpeg = localStorage.getItem("xype.ffmpegPath") ?? "";
 const appWindow = getCurrentWindow();
+const appWebview = getCurrentWebview();
 const userPresetsStorageKey = "xype.motionPresets";
 const defaultUpdateState: UpdateState = {
   currentVersion: packageJson.version,
@@ -87,6 +94,7 @@ export function MotionBlurApp() {
   const [status, setStatus] = useState("");
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [settings, setSettings] = useState<MotionSettings>(defaultMotionSettings);
+  const [motionQueueFiles, setMotionQueueFiles] = useState<string[]>([]);
   const [userPresets, setUserPresets] = useState<UserMotionPreset[]>(loadUserPresets);
   const [preset, setPreset] = useState<BlurPreset>("recommended");
   const [mode, setMode] = useState<JobMode>("motion");
@@ -132,6 +140,24 @@ export function MotionBlurApp() {
       .catch(() => setRuntimeState("error"));
 
     const cleanups = Promise.all([
+      appWebview.onDragDropEvent((event) => {
+        if (event.payload.type !== "drop") return;
+
+        const videos = event.payload.paths.filter(isVideoFile);
+        if (videos.length === 0) {
+          setStatus("Drop a video file.");
+          return;
+        }
+
+        setVideoPath(videos[0]);
+        setOutputPath(null);
+        if (videos.length > 1) {
+          addMotionQueueFiles(videos);
+          setStatus(`Added ${videos.length} clips to Motion Queue.`);
+        } else {
+          setStatus("Loaded video.");
+        }
+      }),
       onAuthSessionUpdated((session) => {
         setAuthSession(session);
         void refreshAccount();
@@ -144,7 +170,8 @@ export function MotionBlurApp() {
     return () => {
       document.removeEventListener("contextmenu", preventContextMenu);
       document.removeEventListener("keydown", preventDevtoolsShortcuts);
-      void cleanups.then(([authUnlisten, ffmpegUnlisten, runtimeUnlisten, renderUnlisten]) => {
+      void cleanups.then(([dropUnlisten, authUnlisten, ffmpegUnlisten, runtimeUnlisten, renderUnlisten]) => {
+        dropUnlisten();
         authUnlisten();
         ffmpegUnlisten();
         runtimeUnlisten();
@@ -471,6 +498,142 @@ export function MotionBlurApp() {
     });
   }
 
+  async function sendSegmentsToMotion(segments: TrimSegment[]) {
+    if (processing) {
+      setStatus("Finish the current export first.");
+      return;
+    }
+    if (!videoPath || !ffmpegPath || ffmpegValid !== true || runtimeState !== "ready") {
+      setStatus("Choose a video and install the motion tools first.");
+      return;
+    }
+
+    const validSegments = segments.filter((segment) => segment.end > segment.start);
+    if (validSegments.length === 0) {
+      setStatus("Select at least one segment.");
+      return;
+    }
+
+    const outputDir = parentDirectory(videoPath);
+    const inputName = fileStem(videoPath);
+    const renderSettings =
+      settings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
+        ? { ...settings, encoder: "libx264" as const }
+        : settings;
+
+    setProcessing(true);
+    setRenderProgress(0);
+    setOutputPath(null);
+
+    const outputs: string[] = [];
+    try {
+      for (const [index, segment] of validSegments.entries()) {
+        const jobNumber = index + 1;
+        const jobLabel = `Motion Blur ${jobNumber}/${validSegments.length}`;
+        let tempPath: string | null = null;
+        try {
+          setCurrentJobLabel(jobLabel);
+          setStatus(`Preparing segment ${jobNumber}/${validSegments.length}`);
+          setRenderProgress(0);
+
+          const trimResult = await trimSegmentForMotion(ffmpegPath, videoPath, segment, jobNumber);
+          if (!trimResult.success || !trimResult.outputPath) {
+            throw new Error(trimResult.message);
+          }
+          tempPath = trimResult.outputPath;
+
+          setStatus(`Rendering segment ${jobNumber}/${validSegments.length}`);
+          const result = await renderMotionVideo(ffmpegPath, tempPath, renderSettings, {
+            outputDir,
+            outputName: `${inputName}_segment_${String(jobNumber).padStart(2, "0")}_motion`,
+          });
+          if (!result.success || !result.outputPath) {
+            throw new Error(result.message);
+          }
+          outputs.push(result.outputPath);
+        } finally {
+          if (tempPath) await cleanupMotionQueueFile(tempPath).catch(() => undefined);
+        }
+      }
+
+      setStatus(`Finished ${outputs.length} motion blur ${outputs.length === 1 ? "clip" : "clips"}`);
+      setOutputPath(outputs[outputs.length - 1] ?? null);
+      setExportCompleteOpen(outputs.length > 0);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  async function runMotionFileQueue(files: string[]) {
+    if (processing) {
+      setStatus("Finish the current export first.");
+      return;
+    }
+    if (!ffmpegPath || ffmpegValid !== true || runtimeState !== "ready") {
+      setStatus("Install the motion tools first.");
+      return;
+    }
+
+    const validFiles = files.filter(Boolean);
+    if (validFiles.length === 0) {
+      setStatus("Add clips to the Motion Queue first.");
+      return;
+    }
+
+    const renderSettings =
+      settings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
+        ? { ...settings, encoder: "libx264" as const }
+        : settings;
+
+    setProcessing(true);
+    setRenderProgress(0);
+    setOutputPath(null);
+
+    const outputs: string[] = [];
+    try {
+      for (const [index, file] of validFiles.entries()) {
+        const jobNumber = index + 1;
+        setCurrentJobLabel(`Motion Blur ${jobNumber}/${validFiles.length}`);
+        setStatus(`Rendering clip ${jobNumber}/${validFiles.length}`);
+        setRenderProgress(0);
+
+        const result = await renderMotionVideo(ffmpegPath, file, renderSettings, {
+          outputDir: parentDirectory(file),
+          outputName: `${fileStem(file)}_motion`,
+        });
+        if (!result.success || !result.outputPath) {
+          throw new Error(result.message);
+        }
+        outputs.push(result.outputPath);
+      }
+
+      setMotionQueueFiles((queuedFiles) => queuedFiles.filter((file) => !validFiles.includes(file)));
+      setStatus(`Finished ${outputs.length} motion blur ${outputs.length === 1 ? "clip" : "clips"}`);
+      setOutputPath(outputs[outputs.length - 1] ?? null);
+      setExportCompleteOpen(outputs.length > 0);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProcessing(false);
+    }
+  }
+
+  function addMotionQueueFiles(files: string[]) {
+    setMotionQueueFiles((queuedFiles) => {
+      const nextFiles = [...queuedFiles];
+      for (const file of files) {
+        if (file && !nextFiles.includes(file)) nextFiles.push(file);
+      }
+      return nextFiles;
+    });
+  }
+
+  function removeMotionQueueFile(path: string) {
+    setMotionQueueFiles((files) => files.filter((file) => file !== path));
+  }
+
   function saveUserPreset() {
     setUserPresets((presets) => {
       const name = `Preset ${presets.length + 1}`;
@@ -599,6 +762,10 @@ export function MotionBlurApp() {
             <MotionSettingsPanel
               encoderSupport={encoderSupport}
               mode={mode}
+              motionQueueFiles={motionQueueFiles}
+              onAddMotionFiles={async () => {
+                addMotionQueueFiles(await pickVideos());
+              }}
               onChange={setSettings}
               onExportPreset={() => {
                 void exportPreset();
@@ -610,7 +777,14 @@ export function MotionBlurApp() {
                 void pickMask();
               }}
               onPresetChange={choosePreset}
+              onRemoveMotionFile={removeMotionQueueFile}
+              onRunMotionFiles={(files) => {
+                void runMotionFileQueue(files);
+              }}
               onSavePreset={saveUserPreset}
+              onSendSegmentsToMotion={(segments) => {
+                void sendSegmentsToMotion(segments);
+              }}
               preset={preset}
               settings={settings}
               userPresets={userPresets}
@@ -756,4 +930,19 @@ function normalizeMotionSettings(settings: Partial<MotionSettings>): MotionSetti
     ...settings,
     trimSegments: Array.isArray(settings.trimSegments) ? settings.trimSegments : [],
   };
+}
+
+function parentDirectory(path: string) {
+  const index = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+  return index > 0 ? path.slice(0, index) : ".";
+}
+
+function fileStem(path: string) {
+  const fileName = path.slice(Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/")) + 1);
+  const dotIndex = fileName.lastIndexOf(".");
+  return (dotIndex > 0 ? fileName.slice(0, dotIndex) : fileName).replace(/[<>:"/\\|?*]/g, "_") || "clip";
+}
+
+function isVideoFile(path: string) {
+  return /\.(mp4|mov|mkv|avi|webm)$/i.test(path);
 }

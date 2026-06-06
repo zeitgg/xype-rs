@@ -490,6 +490,8 @@ pub async fn render_video_motion_runtime(
     encoder: String,
     crf: u32,
     timescale: f64,
+    output_dir: Option<String>,
+    output_name: Option<String>,
     smoothie_recipe: Option<String>,
 ) -> Result<ProcessResult, String> {
     let input = PathBuf::from(&input_path);
@@ -535,7 +537,17 @@ pub async fn render_video_motion_runtime(
         .file_stem()
         .and_then(|value| value.to_str())
         .unwrap_or("output");
-    let output_path = input_dir.join(format!("{input_name}_motion.mp4"));
+    let output_dir = output_dir
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| input_dir.to_path_buf());
+    let output_name = output_name
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(sanitize_output_name)
+        .unwrap_or_else(|| format!("{input_name}_motion"));
+    let output_path = output_dir.join(format!("{output_name}.mp4"));
     if output_path.exists() {
         let _ = fs::remove_file(&output_path);
     }
@@ -741,6 +753,22 @@ fn input_output_path(input: &PathBuf, suffix: &str, extension: &str) -> PathBuf 
         .and_then(|value| value.to_str())
         .unwrap_or("output");
     input_dir.join(format!("{input_name}_{suffix}.{extension}"))
+}
+
+fn sanitize_output_name(name: &str) -> String {
+    let sanitized = name
+        .chars()
+        .map(|ch| match ch {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
+            _ => ch,
+        })
+        .collect::<String>();
+    let trimmed = sanitized.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        "output_motion".to_string()
+    } else {
+        trimmed
+    }
 }
 
 fn spawn_ffmpeg_with_progress(
@@ -1066,6 +1094,91 @@ pub fn trim_video_simple(
             output_path: None,
         })
     }
+}
+
+#[tauri::command]
+pub fn trim_video_queue_segment(
+    app: tauri::AppHandle,
+    ffmpeg_path: String,
+    input_path: String,
+    start_seconds: f64,
+    end_seconds: f64,
+    index: u32,
+) -> Result<ProcessResult, String> {
+    let ffmpeg = PathBuf::from(&ffmpeg_path);
+    let input = PathBuf::from(&input_path);
+    if !ffmpeg.exists() || !input.exists() {
+        return Ok(ProcessResult {
+            success: false,
+            message: "Missing FFmpeg or input video".to_string(),
+            output_path: None,
+        });
+    }
+    if start_seconds < 0.0 || end_seconds <= start_seconds {
+        return Ok(ProcessResult {
+            success: false,
+            message: "Choose a valid start and end time.".to_string(),
+            output_path: None,
+        });
+    }
+
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("motion-queue");
+    fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let output_path = cache_dir.join(format!("segment-{stamp}-{index:04}.mp4"));
+
+    let output = hidden_cmd(&ffmpeg)
+        .arg("-y")
+        .arg("-ss")
+        .arg(format!("{start_seconds:.3}"))
+        .arg("-to")
+        .arg(format!("{end_seconds:.3}"))
+        .arg("-i")
+        .arg(&input)
+        .arg("-map")
+        .arg("0")
+        .arg("-c")
+        .arg("copy")
+        .arg("-avoid_negative_ts")
+        .arg("make_zero")
+        .arg(&output_path)
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    if output.status.success() && output_path.exists() {
+        Ok(ProcessResult {
+            success: true,
+            message: "Prepared segment".to_string(),
+            output_path: output_path.to_str().map(str::to_string),
+        })
+    } else {
+        Ok(ProcessResult {
+            success: false,
+            message: format!("FFmpeg error: {}", String::from_utf8_lossy(&output.stderr)),
+            output_path: None,
+        })
+    }
+}
+
+#[tauri::command]
+pub fn cleanup_motion_queue_file(app: tauri::AppHandle, path: String) -> Result<(), String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| e.to_string())?
+        .join("motion-queue");
+    let target = PathBuf::from(path);
+    if target.starts_with(&cache_dir) && target.is_file() {
+        fs::remove_file(target).map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

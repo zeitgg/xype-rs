@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { JobMode, MotionSettings, ProcessResult } from "./types";
+import type { JobMode, MotionSettings, ProcessResult, TrimSegment } from "./types";
 
 export type EncoderSupport = {
   h264Nvenc: boolean;
@@ -38,6 +38,7 @@ export function renderMotionVideo(
   ffmpegPath: string,
   inputPath: string,
   settings: MotionSettings,
+  output?: { outputDir: string; outputName: string },
 ) {
   return invoke<ProcessResult>("render_video_motion_runtime", {
     ffmpegPath,
@@ -57,8 +58,29 @@ export function renderMotionVideo(
     encoder: settings.encoder,
     crf: settings.crf,
     timescale: settings.timescale,
+    outputDir: output?.outputDir ?? null,
+    outputName: output?.outputName ?? null,
     smoothieRecipe: null,
   });
+}
+
+export function trimSegmentForMotion(
+  ffmpegPath: string,
+  inputPath: string,
+  segment: TrimSegment,
+  index: number,
+) {
+  return invoke<ProcessResult>("trim_video_queue_segment", {
+    ffmpegPath,
+    inputPath,
+    startSeconds: segment.start,
+    endSeconds: segment.end,
+    index,
+  });
+}
+
+export function cleanupMotionQueueFile(path: string) {
+  return invoke<void>("cleanup_motion_queue_file", { path });
 }
 
 export function renderJob(

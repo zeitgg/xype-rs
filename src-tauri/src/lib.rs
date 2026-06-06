@@ -282,6 +282,8 @@ pub fn run() {
             motion::upscale_youtube_4k_simple,
             motion::tiktok_fps_simple,
             motion::trim_video_simple,
+            motion::trim_video_queue_segment,
+            motion::cleanup_motion_queue_file,
             motion::trim_video_segments,
         ])
         .run(tauri::generate_context!())
