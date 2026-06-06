@@ -15,6 +15,7 @@ const MOTION_SCRIPT: &str = include_str!("../resources/motion-runtime/xype_motio
 const FFMPEG_URL: &str = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip";
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProcessResult {
     pub success: bool,
     pub message: String,
@@ -22,6 +23,7 @@ pub struct ProcessResult {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EncoderSupport {
     pub h264_nvenc: bool,
 }
@@ -84,6 +86,22 @@ fn bundled_motion_script(app: &tauri::AppHandle) -> Result<PathBuf, String> {
         .map_err(|e| e.to_string())?
         .join("motion-runtime")
         .join("xype_motion.vpy"))
+}
+
+fn bundled_mask_path(app: &tauri::AppHandle, preset: &str) -> Result<Option<PathBuf>, String> {
+    let file_name = match preset {
+        "valorant-minimal" => "valorant-minimal.png",
+        "valorant-detailed" => "valorant-detailed.png",
+        _ => return Ok(None),
+    };
+
+    Ok(Some(
+        app.path()
+            .resource_dir()
+            .map_err(|e| e.to_string())?
+            .join("masks")
+            .join(file_name),
+    ))
 }
 
 fn refresh_motion_script(app: &tauri::AppHandle, runtime_dir: &PathBuf) -> Result<(), String> {
@@ -492,6 +510,8 @@ pub async fn render_video_motion_runtime(
     timescale: f64,
     output_dir: Option<String>,
     output_name: Option<String>,
+    mask_preset: String,
+    mask_path: String,
     smoothie_recipe: Option<String>,
 ) -> Result<ProcessResult, String> {
     let input = PathBuf::from(&input_path);
@@ -554,6 +574,16 @@ pub async fn render_video_motion_runtime(
 
     let working_fps = interpolate_fps.max(output_fps).max(1);
     let blur_intensity = blur_intensity.clamp(0.0, 4.0);
+    let resolved_mask_path = if mask_preset == "custom" && !mask_path.trim().is_empty() {
+        Some(PathBuf::from(mask_path.trim()))
+    } else {
+        bundled_mask_path(&app, &mask_preset)?
+    }
+    .filter(|path| path.exists());
+    let mask_path_value = resolved_mask_path
+        .as_ref()
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
     let mut recipe_value = serde_json::json!({
         "data": {
             "interpolation": {
@@ -575,6 +605,10 @@ pub async fn render_video_motion_runtime(
                 "enabled": if flowblur_enabled && flowblur_amount > 0 { "yes" } else { "no" },
                 "amount": flowblur_amount.to_string(),
                 "do blending": "after"
+            },
+            "mask": {
+                "enabled": if !mask_path_value.is_empty() { "yes" } else { "no" },
+                "path": mask_path_value
             },
             "miscellaneous": {
                 "source plugin": "bestsource",

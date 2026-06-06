@@ -60,6 +60,8 @@ export function renderMotionVideo(
     timescale: settings.timescale,
     outputDir: output?.outputDir ?? null,
     outputName: output?.outputName ?? null,
+    maskPreset: settings.maskPreset,
+    maskPath: settings.maskPath,
     smoothieRecipe: null,
   });
 }

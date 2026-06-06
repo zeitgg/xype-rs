@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -84,7 +84,7 @@ export function MotionBlurApp() {
   const [encoderSupport, setEncoderSupport] = useState<EncoderSupport | null>(null);
   const [ffmpegState, setFfmpegState] = useState<ToolState>("checking");
   const [ffmpegProgress, setFfmpegProgress] = useState(0);
-  const [videoPath, setVideoPath] = useState("");
+  const [videoPaths, setVideoPaths] = useState<Record<JobMode, string>>(createEmptyVideoPaths);
   const [inputFps, setInputFps] = useState<number | null>(null);
   const [runtimeState, setRuntimeState] = useState<RuntimeState>("checking");
   const [installProgress, setInstallProgress] = useState(0);
@@ -98,6 +98,7 @@ export function MotionBlurApp() {
   const [userPresets, setUserPresets] = useState<UserMotionPreset[]>(loadUserPresets);
   const [preset, setPreset] = useState<BlurPreset>("recommended");
   const [mode, setMode] = useState<JobMode>("motion");
+  const modeRef = useRef<JobMode>("motion");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportCompleteOpen, setExportCompleteOpen] = useState(false);
   const [authSession, setAuthSession] = useState<PublicAuthSession | null>(null);
@@ -107,6 +108,11 @@ export function MotionBlurApp() {
     () => localStorage.getItem("xype.onboardingComplete") !== "1",
   );
   const [updateState, setUpdateState] = useState<UpdateState>(defaultUpdateState);
+  const videoPath = videoPaths[mode];
+
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
@@ -149,7 +155,7 @@ export function MotionBlurApp() {
           return;
         }
 
-        setVideoPath(videos[0]);
+        setVideoForMode(modeRef.current, videos[0]);
         setOutputPath(null);
         if (videos.length > 1) {
           addMotionQueueFiles(videos);
@@ -634,6 +640,13 @@ export function MotionBlurApp() {
     setMotionQueueFiles((files) => files.filter((file) => file !== path));
   }
 
+  function setVideoForMode(targetMode: JobMode, path: string) {
+    setVideoPaths((paths) => ({
+      ...paths,
+      [targetMode]: path,
+    }));
+  }
+
   function saveUserPreset() {
     setUserPresets((presets) => {
       const name = `Preset ${presets.length + 1}`;
@@ -717,7 +730,7 @@ export function MotionBlurApp() {
             aria-label="Reset"
             className="rounded px-2 py-1 text-[11px] text-white/45 hover:bg-white/[0.07] hover:text-white"
             onClick={() => {
-              setVideoPath("");
+              setVideoForMode(mode, "");
               setOutputPath(null);
               setStatus("");
             }}
@@ -749,7 +762,7 @@ export function MotionBlurApp() {
               onPickVideo={async () => {
                 const selected = await pickVideo();
                 if (selected) {
-                  setVideoPath(selected);
+                  setVideoForMode(mode, selected);
                   setOutputPath(null);
                 }
               }}
@@ -929,6 +942,17 @@ function normalizeMotionSettings(settings: Partial<MotionSettings>): MotionSetti
     ...defaultMotionSettings,
     ...settings,
     trimSegments: Array.isArray(settings.trimSegments) ? settings.trimSegments : [],
+  };
+}
+
+function createEmptyVideoPaths(): Record<JobMode, string> {
+  return {
+    motion: "",
+    trim: "",
+    compress: "",
+    discord: "",
+    youtube: "",
+    tiktok: "",
   };
 }
 

@@ -51,27 +51,34 @@ if isinstance(recipe, bytes):
 rc = json.loads(recipe)["data"]
 
 source_plugin = rc["miscellaneous"].get("source plugin", "bestsource").lower()
-if source_plugin in {"bs", "bestsource", "best source"} and hasattr(core, "bs"):
-    clip = core.bs.VideoSource(input_video)
-elif source_plugin in {"lsmas", "lsmash", "lwsmashsource"} and hasattr(core, "lsmas"):
-    clip = core.lsmas.LWLibavSource(input_video)
-elif hasattr(core, "ffms2"):
-    clip = core.ffms2.Source(input_video)
-else:
+
+def _source(path):
+    if source_plugin in {"bs", "bestsource", "best source"} and hasattr(core, "bs"):
+        return core.bs.VideoSource(path)
+    if source_plugin in {"lsmas", "lsmash", "lwsmashsource"} and hasattr(core, "lsmas"):
+        return core.lsmas.LWLibavSource(path)
+    if hasattr(core, "ffms2"):
+        return core.ffms2.Source(path)
     raise RuntimeError("No supported VapourSynth source plugin found")
 
-clip = core.resize.Bicubic(
-    clip,
-    format=vs.YUV420P8,
-    matrix_in_s="709",
-    transfer_in_s="709",
-    primaries_in_s="709",
-    matrix_s="709",
-    transfer_s="709",
-    primaries_s="709",
-    range_in_s="limited",
-    range_s="limited",
-)
+
+def _normalize(clip):
+    return core.resize.Bicubic(
+        clip,
+        format=vs.YUV420P8,
+        matrix_in_s="709",
+        transfer_in_s="709",
+        primaries_in_s="709",
+        matrix_s="709",
+        transfer_s="709",
+        primaries_s="709",
+        range_in_s="limited",
+        range_s="limited",
+    )
+
+
+source_clip = _normalize(_source(input_video))
+clip = source_clip
 
 in_scale = float(rc["timescale"].get("in", "1.0"))
 if in_scale != 1.0:
@@ -132,5 +139,30 @@ if _yes(blend.get("enabled", "no")):
 out_scale = float(rc["timescale"].get("out", "1.0"))
 if out_scale != 1.0:
     clip = core.std.AssumeFPS(clip, fpsnum=int(clip.fps * out_scale))
+
+mask = rc.get("mask", {})
+mask_path = mask.get("path", "")
+if _yes(mask.get("enabled", "no")) and mask_path:
+    if not hasattr(core, "imwri"):
+        raise RuntimeError("Mask rendering requires the VapourSynth imwri image reader plugin.")
+    if not os.path.exists(mask_path):
+        raise RuntimeError(f"Mask PNG not found: {mask_path}")
+
+    clean = source_clip
+    if clean.fps_num != clip.fps_num or clean.fps_den != clip.fps_den:
+        clean = havsfunc.ChangeFPS(clean, clip.fps_num / clip.fps_den)
+    clean = clean[:len(clip)]
+
+    mask_clip = core.imwri.Read(mask_path, alpha=False)
+    mask_clip = core.std.Loop(mask_clip, times=len(clip))
+    mask_clip = core.resize.Bicubic(
+        mask_clip,
+        width=clip.width,
+        height=clip.height,
+        format=vs.GRAY8,
+        matrix_s="709",
+        range_s="full",
+    )
+    clip = core.std.MaskedMerge(clean, clip, mask_clip)
 
 clip.set_output()

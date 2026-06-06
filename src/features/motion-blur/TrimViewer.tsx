@@ -29,6 +29,7 @@ export function TrimViewer({
   videoPath,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const loadedVideoRef = useRef("");
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [pendingStart, setPendingStart] = useState<number | null>(null);
@@ -140,8 +141,9 @@ export function TrimViewer({
   function handleLoadedMetadata() {
     const nextDuration = videoRef.current?.duration ?? 0;
     setDuration(nextDuration);
-    if (nextDuration > 0 && settings.trimEnd <= settings.trimStart) {
-      updateTrim({ trimStart: 0, trimEnd: Math.min(nextDuration, 10) });
+    if (nextDuration > 0 && loadedVideoRef.current !== videoPath) {
+      loadedVideoRef.current = videoPath;
+      updateTrim({ trimStart: 0, trimEnd: nextDuration });
     } else if (nextDuration > 0 && settings.trimEnd > nextDuration) {
       updateTrim({ trimEnd: nextDuration });
     }
