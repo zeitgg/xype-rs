@@ -97,7 +97,7 @@ export function AppSettingsDialog({
             </TabButton>
           </nav>
 
-          <div className="min-h-0 space-y-3 overflow-auto p-5">
+          <div className="xype-scrollbar min-h-0 space-y-3 overflow-auto p-5">
             {tab === "tools" ? (
               <>
                 <section className="space-y-3 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">

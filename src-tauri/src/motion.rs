@@ -21,6 +21,11 @@ pub struct ProcessResult {
     pub output_path: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct EncoderSupport {
+    pub h264_nvenc: bool,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TrimSegment {
     pub start: f64,
@@ -195,13 +200,14 @@ fn audio_tempo_filter(timescale: f64) -> String {
 
 #[tauri::command]
 pub fn pick_file(kind: String) -> Result<Option<String>, String> {
-    let (title, filter) = if kind == "ffmpeg" {
-        ("Select ffmpeg.exe", "Executables (*.exe)|*.exe")
-    } else {
-        (
+    let (title, filter) = match kind.as_str() {
+        "ffmpeg" => ("Select ffmpeg.exe", "Executables (*.exe)|*.exe"),
+        "mask" => ("Select mask PNG", "PNG masks (*.png)|*.png"),
+        "preset" => ("Select xype preset", "xype presets (*.vro)|*.vro"),
+        _ => (
             "Select video",
             "Video files (*.mp4;*.mov;*.mkv;*.avi;*.webm)|*.mp4;*.mov;*.mkv;*.avi;*.webm",
-        )
+        ),
     };
 
     let script = format!(
@@ -225,6 +231,16 @@ if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{
 
     let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
     Ok((!path.is_empty()).then_some(path))
+}
+
+#[tauri::command]
+pub fn read_text_file(path: String) -> Result<String, String> {
+    fs::read_to_string(PathBuf::from(path)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn write_text_file(path: String, contents: String) -> Result<(), String> {
+    fs::write(PathBuf::from(path), contents).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -303,6 +319,29 @@ pub fn validate_ffmpeg(ffmpeg_path: &str) -> bool {
         .output()
         .map(|output| output.status.success())
         .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn check_encoder_support(ffmpeg_path: &str) -> Result<EncoderSupport, String> {
+    let ffmpeg = PathBuf::from(ffmpeg_path);
+    if !ffmpeg.exists() {
+        return Ok(EncoderSupport { h264_nvenc: false });
+    }
+
+    let output = hidden_cmd(&ffmpeg)
+        .arg("-hide_banner")
+        .arg("-encoders")
+        .output()
+        .map_err(|e| e.to_string())?;
+    let encoders = format!(
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    Ok(EncoderSupport {
+        h264_nvenc: encoders.contains("h264_nvenc"),
+    })
 }
 
 #[tauri::command]
@@ -436,10 +475,18 @@ pub async fn render_video_motion_runtime(
     app: tauri::AppHandle,
     ffmpeg_path: String,
     input_path: String,
+    interpolation_enabled: bool,
     interpolate_fps: u32,
+    interpolation_speed: String,
+    interpolation_tuning: String,
+    interpolation_algorithm: u32,
+    interpolation_gpu: bool,
+    frame_blending_enabled: bool,
     output_fps: u32,
-    frames_to_blend: u32,
+    blur_intensity: f64,
     blend_weighting: String,
+    flowblur_enabled: bool,
+    flowblur_amount: u32,
     encoder: String,
     crf: u32,
     timescale: f64,
@@ -494,28 +541,27 @@ pub async fn render_video_motion_runtime(
     }
 
     let working_fps = interpolate_fps.max(output_fps).max(1);
-    let blur_intensity =
-        ((frames_to_blend as f64 * output_fps as f64) / working_fps as f64).clamp(0.1, 4.0);
+    let blur_intensity = blur_intensity.clamp(0.0, 4.0);
     let mut recipe_value = serde_json::json!({
         "data": {
             "interpolation": {
-                "enabled": if interpolate_fps > 0 { "yes" } else { "no" },
+                "enabled": if interpolation_enabled && interpolate_fps > 0 { "yes" } else { "no" },
                 "fps": working_fps.to_string(),
-                "speed": "medium",
-                "tuning": "smooth",
-                "algorithm": "23",
+                "speed": interpolation_speed,
+                "tuning": interpolation_tuning,
+                "algorithm": interpolation_algorithm.to_string(),
                 "block size": "auto",
-                "use gpu": "yes"
+                "use gpu": if interpolation_gpu { "yes" } else { "no" }
             },
             "frame blending": {
-                "enabled": if frames_to_blend > 1 { "yes" } else { "no" },
+                "enabled": if frame_blending_enabled && blur_intensity > 0.0 { "yes" } else { "no" },
                 "fps": output_fps.to_string(),
                 "intensity": blur_intensity.to_string(),
                 "weighting": blend_weighting
             },
             "flowblur": {
-                "enabled": "no",
-                "amount": "0",
+                "enabled": if flowblur_enabled && flowblur_amount > 0 { "yes" } else { "no" },
+                "amount": flowblur_amount.to_string(),
                 "do blending": "after"
             },
             "miscellaneous": {

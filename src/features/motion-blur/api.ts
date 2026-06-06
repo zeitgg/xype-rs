@@ -2,8 +2,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type { JobMode, MotionSettings, ProcessResult } from "./types";
 
+export type EncoderSupport = {
+  h264Nvenc: boolean;
+};
+
 export function validateFfmpeg(ffmpegPath: string) {
   return invoke<boolean>("validate_ffmpeg", { ffmpegPath });
+}
+
+export function checkEncoderSupport(ffmpegPath: string) {
+  return invoke<EncoderSupport>("check_encoder_support", { ffmpegPath });
 }
 
 export function checkFfmpegRuntime() {
@@ -34,10 +42,18 @@ export function renderMotionVideo(
   return invoke<ProcessResult>("render_video_motion_runtime", {
     ffmpegPath,
     inputPath,
+    interpolationEnabled: settings.interpolationEnabled,
     interpolateFps: settings.interpolateFps,
+    interpolationSpeed: settings.interpolationSpeed,
+    interpolationTuning: settings.interpolationTuning,
+    interpolationAlgorithm: settings.interpolationAlgorithm,
+    interpolationGpu: settings.interpolationGpu,
+    frameBlendingEnabled: settings.frameBlendingEnabled,
     outputFps: settings.outputFps,
-    framesToBlend: settings.framesToBlend,
+    blurIntensity: settings.blurIntensity,
     blendWeighting: settings.blendWeighting,
+    flowblurEnabled: settings.flowblurEnabled,
+    flowblurAmount: settings.flowblurAmount,
     encoder: settings.encoder,
     crf: settings.crf,
     timescale: settings.timescale,

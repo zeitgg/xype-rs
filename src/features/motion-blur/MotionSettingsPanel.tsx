@@ -1,20 +1,45 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon, PlusSignIcon } from "@hugeicons/core-free-icons";
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import type { BlurPreset, JobMode, MotionSettings, TrimSegment } from "./types";
+import { Switch } from "@/components/ui/switch";
+import type { EncoderSupport } from "./api";
+import type { BlurPreset, JobMode, MotionSettings, TrimSegment, UserMotionPreset } from "./types";
 
 type Props = {
+  encoderSupport: EncoderSupport | null;
   mode: JobMode;
   onChange: (settings: MotionSettings) => void;
+  onExportPreset: () => void;
+  onImportPreset: () => void;
+  onPickMask: () => void;
   onPresetChange: (preset: BlurPreset) => void;
+  onSavePreset: () => void;
   preset: BlurPreset;
   settings: MotionSettings;
+  userPresets: UserMotionPreset[];
 };
 
 const weightings: MotionSettings["blendWeighting"][] = ["equal", "gaussian", "pyramid", "vegas"];
+const interpolationSpeeds: MotionSettings["interpolationSpeed"][] = ["medium", "fast", "faster", "fastest"];
+const interpolationTunings: MotionSettings["interpolationTuning"][] = ["weak", "smooth", "film", "animation"];
+const interpolationAlgorithms: MotionSettings["interpolationAlgorithm"][] = [23, 13, 2];
+const maskPresets: Array<{ id: MotionSettings["maskPreset"]; label: string }> = [
+  { id: "none", label: "No mask" },
+  { id: "valorant", label: "VALORANT HUD" },
+  { id: "center", label: "Center focus" },
+  { id: "custom", label: "Custom PNG" },
+];
 const weightingLabels: Record<MotionSettings["blendWeighting"], string> = {
   equal: "Even",
   gaussian: "Smooth",
@@ -28,7 +53,19 @@ const presets: Array<{ id: BlurPreset; label: string; description: string }> = [
   { id: "strong", label: "Strong", description: "More blur for fast movement." },
 ];
 
-export function MotionSettingsPanel({ mode, onChange, onPresetChange, preset, settings }: Props) {
+export function MotionSettingsPanel({
+  encoderSupport,
+  mode,
+  onChange,
+  onExportPreset,
+  onImportPreset,
+  onPickMask,
+  onPresetChange,
+  onSavePreset,
+  preset,
+  settings,
+  userPresets,
+}: Props) {
   function update(next: Partial<MotionSettings>) {
     onChange({ ...settings, ...next });
   }
@@ -39,33 +76,192 @@ export function MotionSettingsPanel({ mode, onChange, onPresetChange, preset, se
 
   return (
     <section className="flex h-full min-h-0 flex-col">
-      <div className="flex h-9 shrink-0 items-center border-b border-white/[0.075] px-3">
+      <div className="flex h-10 shrink-0 items-center border-b border-white/[0.075] px-4">
         <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
           Properties
         </h2>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-3">
-        <p className="mb-2 text-xs font-medium text-white/65">
-          {mode === "motion" ? "How much smoother?" : "Output"}
-        </p>
+      <div className="xype-scrollbar min-h-0 flex-1 overflow-auto p-4">
         {mode === "motion" ? (
-          <div className="space-y-2">
-            {presets.map((item) => (
-              <button
-                className={[
-                  "w-full rounded-md border p-3 text-left transition-colors",
-                  preset === item.id
-                    ? "border-white/25 bg-white/[0.09]"
-                    : "border-white/[0.075] bg-white/[0.025] hover:bg-white/[0.045]",
-                ].join(" ")}
-                key={item.id}
-                onClick={() => onPresetChange(item.id)}
-                type="button"
-              >
-                <span className="block text-sm font-semibold">{item.label}</span>
-                <span className="mt-1 block text-xs text-white/38">{item.description}</span>
-              </button>
-            ))}
+          <div className="space-y-4">
+            <PanelGroup title="Presets">
+              <div className="grid grid-cols-3 gap-2">
+                {presets.map((item) => (
+                  <Button
+                    className="px-1"
+                    key={item.id}
+                    onClick={() => onPresetChange(item.id)}
+                    size="sm"
+                    type="button"
+                    variant={preset === item.id ? "default" : "outline"}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              {userPresets.length > 0 && (
+                <Select
+                  onValueChange={(id) => {
+                    const selected = userPresets.find((item) => item.id === id);
+                    if (selected) onChange(selected.settings);
+                  }}
+                >
+                  <SelectTrigger className="w-full border-white/[0.075] bg-white/[0.045]">
+                    <SelectValue placeholder="User presets" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {userPresets.map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <div className="grid grid-cols-3 gap-2">
+                <Button onClick={onSavePreset} size="sm" type="button" variant="outline">
+                  Save
+                </Button>
+                <Button onClick={onImportPreset} size="sm" type="button" variant="outline">
+                  Import
+                </Button>
+                <Button onClick={onExportPreset} size="sm" type="button" variant="outline">
+                  Export
+                </Button>
+              </div>
+            </PanelGroup>
+
+            <PanelGroup title="Frame blending">
+              <ToggleRow
+                checked={settings.frameBlendingEnabled}
+                label="Blend frames"
+                onCheckedChange={(frameBlendingEnabled) => update({ frameBlendingEnabled })}
+              />
+              <NumberField
+                label="Output FPS"
+                min={24}
+                onChange={(outputFps) => update({ outputFps })}
+                value={settings.outputFps}
+              />
+              <SliderField
+                label="Intensity"
+                max={4}
+                min={0}
+                onChange={(blurIntensity) => update({ blurIntensity })}
+                step={0.05}
+                value={settings.blurIntensity}
+              />
+              <ButtonGrid
+                label="Weighting"
+                options={weightings.map((value) => ({ label: weightingLabels[value], value }))}
+                onChange={(blendWeighting) => update({ blendWeighting })}
+                value={settings.blendWeighting}
+              />
+            </PanelGroup>
+
+            <PanelGroup title="Interpolation">
+              <ToggleRow
+                checked={settings.interpolationEnabled}
+                label="Generate in-between frames"
+                onCheckedChange={(interpolationEnabled) => update({ interpolationEnabled })}
+              />
+              <NumberField
+                label="Interpolated FPS"
+                min={60}
+                onChange={(interpolateFps) => update({ interpolateFps })}
+                value={settings.interpolateFps}
+              />
+              <SelectField
+                label="Speed"
+                onChange={(interpolationSpeed) => update({ interpolationSpeed })}
+                options={interpolationSpeeds}
+                value={settings.interpolationSpeed}
+              />
+              <SelectField
+                label="Tuning"
+                onChange={(interpolationTuning) => update({ interpolationTuning })}
+                options={interpolationTunings}
+                value={settings.interpolationTuning}
+              />
+              <SelectField
+                label="Algorithm"
+                onChange={(value) => update({ interpolationAlgorithm: Number(value) as MotionSettings["interpolationAlgorithm"] })}
+                options={interpolationAlgorithms.map(String)}
+                value={String(settings.interpolationAlgorithm)}
+              />
+              <ToggleRow
+                checked={settings.interpolationGpu}
+                label="Use GPU"
+                onCheckedChange={(interpolationGpu) => update({ interpolationGpu })}
+              />
+            </PanelGroup>
+
+            <PanelGroup title="Flowblur">
+              <ToggleRow
+                checked={settings.flowblurEnabled}
+                label="RSMB-style blur"
+                onCheckedChange={(flowblurEnabled) => update({ flowblurEnabled })}
+              />
+              <SliderField
+                label="Amount"
+                max={200}
+                min={0}
+                onChange={(flowblurAmount) => update({ flowblurAmount: Math.round(flowblurAmount) })}
+                step={1}
+                value={settings.flowblurAmount}
+              />
+            </PanelGroup>
+
+            <PanelGroup title="Mask">
+              <SelectField
+                label="Mask"
+                onChange={(maskPreset) => update({ maskPreset: maskPreset as MotionSettings["maskPreset"] })}
+                options={maskPresets.map((item) => item.id)}
+                renderLabel={(value) => maskPresets.find((item) => item.id === value)?.label ?? value}
+                value={settings.maskPreset}
+              />
+              <div className="flex items-center gap-3">
+                <Button onClick={onPickMask} size="sm" type="button" variant="outline">
+                  Pick PNG
+                </Button>
+                <span className="min-w-0 truncate text-[11px] text-white/35">
+                  {settings.maskPath || "Mask rendering will be wired later."}
+                </span>
+              </div>
+            </PanelGroup>
+
+            <PanelGroup title="Output">
+              <div className="grid grid-cols-2 gap-2">
+                <NumberField
+                  label="Quality"
+                  max={35}
+                  min={1}
+                  onChange={(crf) => update({ crf })}
+                  value={settings.crf}
+                />
+                <NumberField
+                  label="Speed"
+                  min={0.25}
+                  onChange={(timescale) => update({ timescale })}
+                  step={0.25}
+                  value={settings.timescale}
+                />
+              </div>
+              <ButtonGrid
+                label="Encoder"
+                options={[
+                  { label: "Most PCs", value: "libx264" },
+                  { label: "NVIDIA", value: "h264_nvenc", disabled: encoderSupport?.h264Nvenc === false },
+                ]}
+                onChange={(encoder) => update({ encoder })}
+                value={settings.encoder}
+              />
+              {encoderSupport?.h264Nvenc === false && (
+                <p className="text-[11px] leading-4 text-white/35">
+                  NVIDIA encoding is unavailable. CPU encoding will be used.
+                </p>
+              )}
+            </PanelGroup>
           </div>
         ) : (
           <div className="rounded-md border border-white/[0.075] bg-white/[0.025] p-3">
@@ -90,98 +286,6 @@ export function MotionSettingsPanel({ mode, onChange, onPresetChange, preset, se
           </div>
         )}
 
-      {mode === "motion" && <details className="mt-3 rounded-md border border-white/[0.075] bg-black/10 p-3">
-        <summary className="cursor-pointer text-xs font-medium text-white/55">
-          Fine tune (optional)
-        </summary>
-        <div className="mt-3 space-y-3">
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField
-            label="Generated frames"
-            min={60}
-            onChange={(interpolateFps) => update({ interpolateFps })}
-            value={settings.interpolateFps}
-          />
-          <NumberField
-            label="Output FPS"
-            min={24}
-            onChange={(outputFps) => update({ outputFps })}
-            value={settings.outputFps}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <Label>Blur amount</Label>
-            <span className="text-xs text-white/35">{settings.framesToBlend}/24</span>
-          </div>
-          <Slider
-            max={24}
-            min={1}
-            onValueChange={([framesToBlend]) => update({ framesToBlend })}
-            step={1}
-            value={[settings.framesToBlend]}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label>Blend style</Label>
-          <div className="grid grid-cols-4 gap-1">
-            {weightings.map((weighting) => (
-              <Button
-                key={weighting}
-                className="px-1"
-                onClick={() => update({ blendWeighting: weighting })}
-                size="sm"
-                type="button"
-                variant={settings.blendWeighting === weighting ? "default" : "outline"}
-              >
-                {weightingLabels[weighting]}
-              </Button>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <NumberField
-            label="File quality"
-            max={35}
-            min={1}
-            onChange={(crf) => update({ crf })}
-            value={settings.crf}
-          />
-          <NumberField
-            label="Speed"
-            min={0.25}
-            onChange={(timescale) => update({ timescale })}
-            step={0.25}
-            value={settings.timescale}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label>Encoder</Label>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              onClick={() => update({ encoder: "libx264" })}
-              size="sm"
-              type="button"
-              variant={settings.encoder === "libx264" ? "default" : "outline"}
-            >
-              Most PCs
-            </Button>
-            <Button
-              onClick={() => update({ encoder: "h264_nvenc" })}
-              size="sm"
-              type="button"
-              variant={settings.encoder === "h264_nvenc" ? "default" : "outline"}
-            >
-              NVIDIA
-            </Button>
-          </div>
-        </div>
-      </div>
-      </details>}
       </div>
     </section>
   );
@@ -191,6 +295,129 @@ type TrimSegmentPanelProps = {
   onUpdate: (segments: TrimSegment[]) => void;
   settings: MotionSettings;
 };
+
+function PanelGroup({ children, title }: { children: ReactNode; title: string }) {
+  return (
+    <section className="space-y-3.5 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/38">{title}</p>
+      {children}
+    </section>
+  );
+}
+
+function ToggleRow({
+  checked,
+  label,
+  onCheckedChange,
+}: {
+  checked: boolean;
+  label: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <Label className="text-white/68">{label}</Label>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+    </div>
+  );
+}
+
+function SliderField({
+  label,
+  max,
+  min,
+  onChange,
+  step,
+  value,
+}: {
+  label: string;
+  max: number;
+  min: number;
+  onChange: (value: number) => void;
+  step: number;
+  value: number;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <Label className="text-white/68">{label}</Label>
+        <span className="font-mono text-xs text-white/35">{Number.isInteger(value) ? value : value.toFixed(2)}</span>
+      </div>
+      <Slider
+        max={max}
+        min={min}
+        onValueChange={([nextValue]) => onChange(nextValue)}
+        step={step}
+        value={[value]}
+      />
+    </div>
+  );
+}
+
+function ButtonGrid<TValue extends string>({
+  label,
+  onChange,
+  options,
+  value,
+}: {
+  label: string;
+  onChange: (value: TValue) => void;
+  options: Array<{ disabled?: boolean; label: string; value: TValue }>;
+  value: TValue;
+}) {
+  return (
+    <div className="space-y-2">
+      <Label className="text-white/68">{label}</Label>
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((option) => (
+          <Button
+            className="px-2"
+            disabled={option.disabled}
+            key={option.value}
+            onClick={() => onChange(option.value)}
+            size="sm"
+            type="button"
+            variant={value === option.value ? "default" : "outline"}
+          >
+            {option.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SelectField<TValue extends string>({
+  label,
+  onChange,
+  options,
+  renderLabel = (value) => value,
+  value,
+}: {
+  label: string;
+  onChange: (value: TValue) => void;
+  options: TValue[];
+  renderLabel?: (value: TValue) => string;
+  value: TValue;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-white/68">{label}</Label>
+      <Select onValueChange={(nextValue) => onChange(nextValue as TValue)} value={value}>
+        <SelectTrigger className="w-full border-white/[0.075] bg-white/[0.045]">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option} value={option}>
+              {renderLabel(option)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
 
 function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
   const activeSegment = {
@@ -233,7 +460,7 @@ function TrimSegmentPanel({ onUpdate, settings }: TrimSegmentPanelProps) {
         </div>
       </div>
 
-      <div className="max-h-72 overflow-auto rounded border border-white/[0.075] bg-black/10">
+      <div className="xype-scrollbar max-h-72 overflow-auto rounded border border-white/[0.075] bg-black/10">
         {visibleSegments.map((segment, index) => (
           <div
             className="grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 border-b border-white/[0.06] px-2 py-2 last:border-b-0"
@@ -305,7 +532,7 @@ type NumberFieldProps = {
 function NumberField({ label, max, min, onChange, step = 1, value }: NumberFieldProps) {
   return (
     <div className="space-y-1.5">
-      <Label>{label}</Label>
+      <Label className="text-white/68">{label}</Label>
       <Input
         className="border-white/[0.075] bg-white/[0.045] text-white"
         max={max}

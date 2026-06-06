@@ -207,7 +207,7 @@ export function OnboardingTour({
           </div>
         </aside>
 
-        <div className="overflow-y-auto p-5">
+        <div className="xype-scrollbar overflow-y-auto p-5">
           {phase === "setup" ? (
             <>
               <div className="mb-5 flex items-start justify-between gap-4">

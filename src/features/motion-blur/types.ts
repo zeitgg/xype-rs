@@ -14,10 +14,20 @@ export type TrimSegment = {
 };
 
 export type MotionSettings = {
+  interpolationEnabled: boolean;
   interpolateFps: number;
+  interpolationSpeed: "medium" | "fast" | "faster" | "fastest";
+  interpolationTuning: "film" | "animation" | "weak" | "smooth";
+  interpolationAlgorithm: 2 | 13 | 23;
+  interpolationGpu: boolean;
+  frameBlendingEnabled: boolean;
   outputFps: number;
-  framesToBlend: number;
+  blurIntensity: number;
   blendWeighting: "equal" | "gaussian" | "pyramid" | "vegas";
+  flowblurEnabled: boolean;
+  flowblurAmount: number;
+  maskPreset: "none" | "valorant" | "center" | "custom";
+  maskPath: string;
   encoder: "libx264" | "h264_nvenc";
   crf: number;
   timescale: number;
@@ -27,6 +37,11 @@ export type MotionSettings = {
 };
 
 export type BlurPreset = "subtle" | "recommended" | "strong";
+export type UserMotionPreset = {
+  id: string;
+  name: string;
+  settings: MotionSettings;
+};
 export type JobMode = "motion" | "trim" | "compress" | "discord" | "youtube" | "tiktok";
 
 export type JobDefinition = {
@@ -46,10 +61,20 @@ export const jobDefinitions: JobDefinition[] = [
 ];
 
 export const defaultMotionSettings: MotionSettings = {
+  interpolationEnabled: true,
   interpolateFps: 360,
+  interpolationSpeed: "medium",
+  interpolationTuning: "smooth",
+  interpolationAlgorithm: 23,
+  interpolationGpu: true,
+  frameBlendingEnabled: true,
   outputFps: 60,
-  framesToBlend: 6,
+  blurIntensity: 1,
   blendWeighting: "gaussian",
+  flowblurEnabled: false,
+  flowblurAmount: 125,
+  maskPreset: "none",
+  maskPath: "",
   encoder: "libx264",
   crf: 18,
   timescale: 1,
@@ -60,10 +85,20 @@ export const defaultMotionSettings: MotionSettings = {
 
 export const blurPresets: Record<BlurPreset, MotionSettings> = {
   subtle: {
+    interpolationEnabled: true,
     interpolateFps: 240,
+    interpolationSpeed: "medium",
+    interpolationTuning: "weak",
+    interpolationAlgorithm: 23,
+    interpolationGpu: true,
+    frameBlendingEnabled: true,
     outputFps: 60,
-    framesToBlend: 4,
+    blurIntensity: 0.65,
     blendWeighting: "gaussian",
+    flowblurEnabled: false,
+    flowblurAmount: 90,
+    maskPreset: "none",
+    maskPath: "",
     encoder: "libx264",
     crf: 18,
     timescale: 1,
@@ -73,10 +108,20 @@ export const blurPresets: Record<BlurPreset, MotionSettings> = {
   },
   recommended: defaultMotionSettings,
   strong: {
+    interpolationEnabled: true,
     interpolateFps: 480,
+    interpolationSpeed: "medium",
+    interpolationTuning: "smooth",
+    interpolationAlgorithm: 23,
+    interpolationGpu: true,
+    frameBlendingEnabled: true,
     outputFps: 60,
-    framesToBlend: 10,
+    blurIntensity: 1.75,
     blendWeighting: "pyramid",
+    flowblurEnabled: false,
+    flowblurAmount: 150,
+    maskPreset: "none",
+    maskPath: "",
     encoder: "libx264",
     crf: 18,
     timescale: 1,

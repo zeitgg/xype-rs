@@ -15,6 +15,7 @@ import {
   type PublicAuthSession,
 } from "./account";
 import {
+  checkEncoderSupport,
   checkMotionRuntime,
   checkFfmpegRuntime,
   getVideoFps,
@@ -24,12 +25,22 @@ import {
   onRenderProgress,
   onRuntimeProgress,
   renderJob,
+  type EncoderSupport,
   validateFfmpeg,
 } from "./api";
 import { AppSettingsDialog, type UpdateState } from "./AppSettingsDialog";
 import { ExportCompleteDialog } from "./ExportCompleteDialog";
 import { JobSwitcher } from "./JobSwitcher";
-import { pickFfmpeg, pickVideo } from "./file-dialog";
+import { JobProgressToast } from "./JobProgressToast";
+import {
+  pickFfmpeg,
+  pickMaskPng,
+  pickPresetFile,
+  pickVideo,
+  readTextFile,
+  savePresetFile,
+  writeTextFile,
+} from "./file-dialog";
 import { MotionSettingsPanel } from "./MotionSettingsPanel";
 import { OnboardingTour } from "./OnboardingTour";
 import { SourcePanel } from "./SourcePanel";
@@ -45,10 +56,12 @@ import {
   type MotionSettings,
   type RuntimeState,
   type ToolState,
+  type UserMotionPreset,
 } from "./types";
 
 const savedFfmpeg = localStorage.getItem("xype.ffmpegPath") ?? "";
 const appWindow = getCurrentWindow();
+const userPresetsStorageKey = "xype.motionPresets";
 const defaultUpdateState: UpdateState = {
   currentVersion: packageJson.version,
   lastChecked: null,
@@ -61,6 +74,7 @@ const defaultUpdateState: UpdateState = {
 export function MotionBlurApp() {
   const [ffmpegPath, setFfmpegPath] = useState(savedFfmpeg);
   const [ffmpegValid, setFfmpegValid] = useState<boolean | null>(null);
+  const [encoderSupport, setEncoderSupport] = useState<EncoderSupport | null>(null);
   const [ffmpegState, setFfmpegState] = useState<ToolState>("checking");
   const [ffmpegProgress, setFfmpegProgress] = useState(0);
   const [videoPath, setVideoPath] = useState("");
@@ -69,9 +83,11 @@ export function MotionBlurApp() {
   const [installProgress, setInstallProgress] = useState(0);
   const [renderProgress, setRenderProgress] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [currentJobLabel, setCurrentJobLabel] = useState<string | null>(null);
   const [status, setStatus] = useState("");
   const [outputPath, setOutputPath] = useState<string | null>(null);
   const [settings, setSettings] = useState<MotionSettings>(defaultMotionSettings);
+  const [userPresets, setUserPresets] = useState<UserMotionPreset[]>(loadUserPresets);
   const [preset, setPreset] = useState<BlurPreset>("recommended");
   const [mode, setMode] = useState<JobMode>("motion");
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -309,6 +325,7 @@ export function MotionBlurApp() {
     localStorage.setItem("xype.ffmpegPath", ffmpegPath);
     if (!ffmpegPath) {
       setFfmpegValid(null);
+      setEncoderSupport(null);
       return;
     }
 
@@ -329,6 +346,36 @@ export function MotionBlurApp() {
       active = false;
     };
   }, [ffmpegPath]);
+
+  useEffect(() => {
+    if (ffmpegValid !== true || !ffmpegPath) {
+      setEncoderSupport(null);
+      return;
+    }
+
+    let active = true;
+    checkEncoderSupport(ffmpegPath)
+      .then((support) => {
+        if (!active) return;
+        setEncoderSupport(support);
+        if (!support.h264Nvenc) {
+          setSettings((value) =>
+            value.encoder === "h264_nvenc" ? { ...value, encoder: "libx264" } : value,
+          );
+        }
+      })
+      .catch(() => {
+        if (!active) return;
+        setEncoderSupport({ h264Nvenc: false });
+        setSettings((value) =>
+          value.encoder === "h264_nvenc" ? { ...value, encoder: "libx264" } : value,
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [ffmpegPath, ffmpegValid]);
 
   useEffect(() => {
     if (!ffmpegValid || !ffmpegPath || !videoPath) {
@@ -354,6 +401,7 @@ export function MotionBlurApp() {
       !processing,
     [ffmpegValid, mode, processing, runtimeState, videoPath],
   );
+  const activeJobLabel = jobDefinitions.find((job) => job.id === mode)?.label ?? "Video";
 
   async function installRuntime() {
     setRuntimeState("installing");
@@ -391,13 +439,20 @@ export function MotionBlurApp() {
 
   async function render() {
     if (!canRender) return;
+    const renderMode = mode;
+    const renderJobLabel = activeJobLabel;
+    const renderSettings =
+      settings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
+        ? { ...settings, encoder: "libx264" as const }
+        : settings;
     setProcessing(true);
+    setCurrentJobLabel(renderJobLabel);
     setRenderProgress(0);
     setOutputPath(null);
     setStatus("Rendering");
 
     try {
-      const result = await renderJob(mode, ffmpegPath, videoPath, settings);
+      const result = await renderJob(renderMode, ffmpegPath, videoPath, renderSettings);
       setStatus(result.message);
       setOutputPath(result.outputPath);
       setExportCompleteOpen(result.success && Boolean(result.outputPath));
@@ -416,6 +471,71 @@ export function MotionBlurApp() {
     });
   }
 
+  function saveUserPreset() {
+    setUserPresets((presets) => {
+      const name = `Preset ${presets.length + 1}`;
+      const nextPresets = [
+        ...presets,
+        {
+          id: crypto.randomUUID(),
+          name,
+          settings,
+        },
+      ];
+      localStorage.setItem(userPresetsStorageKey, JSON.stringify(nextPresets));
+      setStatus(`Saved preset: ${name}`);
+      return nextPresets;
+    });
+  }
+
+  async function importPreset() {
+    try {
+      const path = await pickPresetFile();
+      if (!path) return;
+
+      const imported = parsePresetFile(await readTextFile(path));
+      setSettings(imported.settings);
+      setUserPresets((presets) => {
+        const nextPresets = [...presets, imported];
+        localStorage.setItem(userPresetsStorageKey, JSON.stringify(nextPresets));
+        return nextPresets;
+      });
+      setStatus(`Imported preset: ${imported.name}`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not import preset.");
+    }
+  }
+
+  async function exportPreset() {
+    try {
+      const path = await savePresetFile("xype-motion-preset.vro");
+      if (!path) return;
+
+      const preset = {
+        app: "xype",
+        kind: "motion-preset",
+        version: 1,
+        name: "Motion preset",
+        settings,
+      };
+      await writeTextFile(path, JSON.stringify(preset, null, 2));
+      setStatus("Exported .vro preset");
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "Could not export preset.");
+    }
+  }
+
+  async function pickMask() {
+    const maskPath = await pickMaskPng();
+    if (!maskPath) return;
+    setSettings((value) => ({
+      ...value,
+      maskPath,
+      maskPreset: "custom",
+    }));
+    setStatus("Mask PNG selected");
+  }
+
   return (
     <main className="dark flex h-screen flex-col overflow-hidden bg-[#111214] text-white antialiased">
       <header className="flex h-11 shrink-0 items-stretch justify-between border-b border-white/[0.075] bg-[#18191c]">
@@ -429,9 +549,9 @@ export function MotionBlurApp() {
             <JobSwitcher mode={mode} onChange={setMode} />
           </div>
         </div>
-        <div className="flex items-center gap-2 pl-2 text-[11px] text-white/45">
-          {status && <span>{status}</span>}
+        <div className="flex items-center gap-1 pl-2 text-[11px] text-white/45">
           <button
+            aria-label="Reset"
             className="rounded px-2 py-1 text-[11px] text-white/45 hover:bg-white/[0.07] hover:text-white"
             onClick={() => {
               setVideoPath("");
@@ -458,7 +578,7 @@ export function MotionBlurApp() {
       </header>
 
       <section className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(360px,28vw,430px)]">
           <div className="h-full min-h-0" data-tour="source">
             <SourcePanel
               inputFps={inputFps}
@@ -477,11 +597,23 @@ export function MotionBlurApp() {
           </div>
           <aside className="min-h-0 border-l border-white/[0.075] bg-[#17181b]" data-tour="properties">
             <MotionSettingsPanel
+              encoderSupport={encoderSupport}
               mode={mode}
               onChange={setSettings}
+              onExportPreset={() => {
+                void exportPreset();
+              }}
+              onImportPreset={() => {
+                void importPreset();
+              }}
+              onPickMask={() => {
+                void pickMask();
+              }}
               onPresetChange={choosePreset}
+              onSavePreset={saveUserPreset}
               preset={preset}
               settings={settings}
+              userPresets={userPresets}
             />
           </aside>
         </div>
@@ -490,12 +622,11 @@ export function MotionBlurApp() {
           <StatusPanel
             actionLabel={mode === "trim" ? "Export Segment" : "Create Copy"}
             canRender={canRender}
-            modeLabel={jobDefinitions.find((job) => job.id === mode)?.label ?? "Video"}
+            modeLabel={activeJobLabel}
             onRender={render}
             outputPath={outputPath}
             processing={processing}
             progress={renderProgress}
-            status={status}
           />
         </div>
       </section>
@@ -542,6 +673,12 @@ export function MotionBlurApp() {
         open={exportCompleteOpen}
         outputPath={outputPath}
       />
+      <JobProgressToast
+        jobLabel={currentJobLabel ?? activeJobLabel}
+        processing={processing}
+        progress={renderProgress}
+        status={status}
+      />
       {onboardingOpen && (
         <OnboardingTour
           ffmpegProgress={ffmpegProgress}
@@ -566,4 +703,57 @@ export function MotionBlurApp() {
       )}
     </main>
   );
+}
+
+function loadUserPresets(): UserMotionPreset[] {
+  try {
+    const raw = localStorage.getItem(userPresetsStorageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter((item): item is Partial<UserMotionPreset> & { name: string; settings: Partial<MotionSettings> } =>
+        Boolean(
+          item &&
+            typeof item === "object" &&
+            "name" in item &&
+            typeof item.name === "string" &&
+            "settings" in item &&
+            item.settings &&
+            typeof item.settings === "object",
+        ),
+      )
+      .map((item) => ({
+        id: typeof item.id === "string" ? item.id : crypto.randomUUID(),
+        name: item.name,
+        settings: normalizeMotionSettings(item.settings),
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function parsePresetFile(contents: string): UserMotionPreset {
+  const parsed = JSON.parse(contents) as {
+    name?: unknown;
+    settings?: unknown;
+  };
+  if (!parsed.settings || typeof parsed.settings !== "object") {
+    throw new Error("Invalid .vro preset.");
+  }
+
+  return {
+    id: crypto.randomUUID(),
+    name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "Imported preset",
+    settings: normalizeMotionSettings(parsed.settings as Partial<MotionSettings>),
+  };
+}
+
+function normalizeMotionSettings(settings: Partial<MotionSettings>): MotionSettings {
+  return {
+    ...defaultMotionSettings,
+    ...settings,
+    trimSegments: Array.isArray(settings.trimSegments) ? settings.trimSegments : [],
+  };
 }
