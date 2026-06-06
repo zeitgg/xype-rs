@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import type { RuntimeState, ToolState } from "./types";
 import { useState } from "react";
+import type { AccessCheck, PublicAuthSession } from "./account";
 
 export type UpdateState = {
   currentVersion: string;
@@ -21,6 +22,8 @@ export type UpdateState = {
 };
 
 type Props = {
+  access: AccessCheck | null;
+  accountChecking: boolean;
   ffmpegPath: string;
   ffmpegProgress: number;
   ffmpegState: ToolState;
@@ -30,18 +33,24 @@ type Props = {
   onInstallFfmpeg: () => void;
   onInstallRuntime: () => void;
   onInstallUpdate: () => void;
+  onLogin: () => void;
+  onLogout: () => void;
   onOpenChange: (open: boolean) => void;
   onPickFfmpeg: () => void;
+  onRefreshAccount: () => void;
   onSetFfmpegPath: (value: string) => void;
   onShowOnboarding: () => void;
   open: boolean;
   runtimeState: RuntimeState;
+  session: PublicAuthSession | null;
   updateState: UpdateState;
 };
 
-type SettingsTab = "tools" | "updates";
+type SettingsTab = "tools" | "account" | "updates";
 
 export function AppSettingsDialog({
+  access,
+  accountChecking,
   ffmpegPath,
   ffmpegProgress,
   ffmpegState,
@@ -51,12 +60,16 @@ export function AppSettingsDialog({
   onInstallFfmpeg,
   onInstallRuntime,
   onInstallUpdate,
+  onLogin,
+  onLogout,
   onOpenChange,
   onPickFfmpeg,
+  onRefreshAccount,
   onSetFfmpegPath,
   onShowOnboarding,
   open,
   runtimeState,
+  session,
   updateState,
 }: Props) {
   const [tab, setTab] = useState<SettingsTab>("tools");
@@ -75,6 +88,9 @@ export function AppSettingsDialog({
           <nav className="space-y-1 border-r border-white/[0.075] bg-black/10 p-3">
             <TabButton active={tab === "tools"} onClick={() => setTab("tools")}>
               Tools
+            </TabButton>
+            <TabButton active={tab === "account"} onClick={() => setTab("account")}>
+              Account
             </TabButton>
             <TabButton active={tab === "updates"} onClick={() => setTab("updates")}>
               Updates
@@ -149,6 +165,15 @@ export function AppSettingsDialog({
                   </Button>
                 </section>
               </>
+            ) : tab === "account" ? (
+              <AccountPanel
+                access={access}
+                checking={accountChecking}
+                onLogin={onLogin}
+                onLogout={onLogout}
+                onRefresh={onRefreshAccount}
+                session={session}
+              />
             ) : (
               <UpdatesPanel
                 onCheckForUpdates={onCheckForUpdates}
@@ -218,6 +243,65 @@ function UpdatesPanel({ onCheckForUpdates, onInstallUpdate, updateState }: Updat
             </Button>
           </div>
         )}
+      </section>
+    </div>
+  );
+}
+
+type AccountPanelProps = {
+  access: AccessCheck | null;
+  checking: boolean;
+  onLogin: () => void;
+  onLogout: () => void;
+  onRefresh: () => void;
+  session: PublicAuthSession | null;
+};
+
+function AccountPanel({ access, checking, onLogin, onLogout, onRefresh, session }: AccountPanelProps) {
+  const active = Boolean(access?.access);
+
+  return (
+    <div className="space-y-3">
+      <section className="rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium">Account</p>
+            <p className="mt-1 text-xs text-white/40">Sign in to verify your xype subscription.</p>
+          </div>
+          <span
+            className={[
+              "rounded px-2 py-1 text-[11px]",
+              active ? "bg-emerald-400/[0.12] text-emerald-200" : "bg-white/[0.07] text-white/55",
+            ].join(" ")}
+          >
+            {active ? "Active" : checking ? "Checking" : "Locked"}
+          </span>
+        </div>
+
+        <div className="mt-4 rounded border border-white/[0.06] bg-black/15 p-3">
+          <p className="text-[10px] uppercase tracking-[0.12em] text-white/28">Signed in as</p>
+          <p className="mt-1 truncate text-sm font-medium text-white/70">{session?.email ?? "Not signed in"}</p>
+          <p className="mt-1 text-xs text-white/35">
+            {active
+              ? "Your subscription is active."
+              : access?.error ?? "Log in, then refresh to unlock xype."}
+          </p>
+        </div>
+
+        <div className="mt-4 flex justify-end gap-2">
+          {session ? (
+            <Button onClick={onLogout} type="button" variant="outline">
+              Log out
+            </Button>
+          ) : (
+            <Button onClick={onLogin} type="button">
+              Log in
+            </Button>
+          )}
+          <Button disabled={checking} onClick={onRefresh} type="button" variant="outline">
+            {checking ? "Checking" : "Refresh"}
+          </Button>
+        </div>
       </section>
     </div>
   );

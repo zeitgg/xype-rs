@@ -356,7 +356,7 @@ pub fn get_video_fps(ffmpeg_path: &str, video_path: &str) -> Result<f64, String>
 pub fn check_motion_runtime(app: tauri::AppHandle) -> Result<bool, String> {
     let dir = motion_runtime_dir(&app)?;
     let scripts_dir = dir.join("scripts");
-    Ok(dir.join("vspipe.exe").exists()
+    Ok(find_named_file(&dir, "vspipe.exe").is_some()
         && dir.join("xype_motion.vpy").exists()
         && scripts_dir.join("havsfunc.py").exists()
         && scripts_dir.join("blending.py").exists())
@@ -465,7 +465,7 @@ pub async fn render_video_motion_runtime(
 
     let runtime = motion_runtime_dir(&app)?;
     refresh_motion_script(&app, &runtime)?;
-    let vspipe = runtime.join("vspipe.exe");
+    let vspipe = find_named_file(&runtime, "vspipe.exe").unwrap_or_else(|| runtime.join("vspipe.exe"));
     let script = runtime.join("xype_motion.vpy");
     if !vspipe.exists() || !script.exists() {
         return Ok(ProcessResult {
@@ -537,6 +537,10 @@ pub async fn render_video_motion_runtime(
     let recipe = recipe_value.to_string();
 
     let mut path_env = runtime.to_string_lossy().to_string();
+    if let Some(vspipe_dir) = vspipe.parent() {
+        path_env.push(';');
+        path_env.push_str(&vspipe_dir.to_string_lossy());
+    }
     if let Ok(existing) = std::env::var("PATH") {
         path_env.push(';');
         path_env.push_str(&existing);

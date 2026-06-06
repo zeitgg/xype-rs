@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Settings02Icon } from "@hugeicons/core-free-icons";
 import packageJson from "@/package.json";
 import { checkForAppUpdates, installAppUpdate } from "@/lib/updater";
+import {
+  checkAppAccess,
+  getAuthSession,
+  logoutAuthSession,
+  onAuthSessionUpdated,
+  type AccessCheck,
+  type PublicAuthSession,
+} from "./account";
 import {
   checkMotionRuntime,
   checkFfmpegRuntime,
@@ -18,12 +27,14 @@ import {
   validateFfmpeg,
 } from "./api";
 import { AppSettingsDialog, type UpdateState } from "./AppSettingsDialog";
+import { ExportCompleteDialog } from "./ExportCompleteDialog";
 import { JobSwitcher } from "./JobSwitcher";
 import { pickFfmpeg, pickVideo } from "./file-dialog";
 import { MotionSettingsPanel } from "./MotionSettingsPanel";
 import { OnboardingTour } from "./OnboardingTour";
 import { SourcePanel } from "./SourcePanel";
 import { StatusPanel } from "./StatusPanel";
+import { SubscriptionGate } from "./SubscriptionGate";
 import { WindowControls } from "./WindowControls";
 import {
   blurPresets,
@@ -64,6 +75,10 @@ export function MotionBlurApp() {
   const [preset, setPreset] = useState<BlurPreset>("recommended");
   const [mode, setMode] = useState<JobMode>("motion");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportCompleteOpen, setExportCompleteOpen] = useState(false);
+  const [authSession, setAuthSession] = useState<PublicAuthSession | null>(null);
+  const [accessState, setAccessState] = useState<AccessCheck | null>(null);
+  const [accessChecking, setAccessChecking] = useState(true);
   const [onboardingOpen, setOnboardingOpen] = useState(
     () => localStorage.getItem("xype.onboardingComplete") !== "1",
   );
@@ -81,6 +96,7 @@ export function MotionBlurApp() {
 
     document.addEventListener("contextmenu", preventContextMenu);
     document.addEventListener("keydown", preventDevtoolsShortcuts);
+    void refreshAccount();
     getVersion()
       .then((currentVersion) => setUpdateState((state) => ({ ...state, currentVersion })))
       .catch(() => undefined);
@@ -100,6 +116,10 @@ export function MotionBlurApp() {
       .catch(() => setRuntimeState("error"));
 
     const cleanups = Promise.all([
+      onAuthSessionUpdated((session) => {
+        setAuthSession(session);
+        void refreshAccount();
+      }),
       onFfmpegProgress(setFfmpegProgress),
       onRuntimeProgress(setInstallProgress),
       onRenderProgress((value) => setRenderProgress(Math.round(value * 100))),
@@ -108,13 +128,57 @@ export function MotionBlurApp() {
     return () => {
       document.removeEventListener("contextmenu", preventContextMenu);
       document.removeEventListener("keydown", preventDevtoolsShortcuts);
-      void cleanups.then(([ffmpegUnlisten, runtimeUnlisten, renderUnlisten]) => {
+      void cleanups.then(([authUnlisten, ffmpegUnlisten, runtimeUnlisten, renderUnlisten]) => {
+        authUnlisten();
         ffmpegUnlisten();
         runtimeUnlisten();
         renderUnlisten();
       });
     };
   }, []);
+
+  useEffect(() => {
+    if (accessState?.access) return;
+
+    const interval = window.setInterval(() => {
+      void refreshAccount();
+    }, 3000);
+
+    return () => window.clearInterval(interval);
+  }, [accessState?.access]);
+
+  async function refreshAccount() {
+    setAccessChecking(true);
+    try {
+      const [session, access] = await Promise.all([getAuthSession(), checkAppAccess()]);
+      setAuthSession(session);
+      setAccessState(access);
+    } catch (error) {
+      setAccessState({
+        access: false,
+        auth: false,
+        error: error instanceof Error ? error.message : "Account check failed.",
+        subscription: false,
+      });
+    } finally {
+      setAccessChecking(false);
+    }
+  }
+
+  async function logoutAccount() {
+    await logoutAuthSession();
+    setAuthSession(null);
+    setAccessState({
+      access: false,
+      auth: false,
+      error: "Logged out.",
+      subscription: false,
+    });
+  }
+
+  function openLogin() {
+    void openUrl("https://xype.gg/login");
+  }
 
   async function checkForUpdates() {
     setUpdateState((state) => ({
@@ -296,8 +360,15 @@ export function MotionBlurApp() {
     setInstallProgress(0);
     setStatus("Installing engine");
     const result = await installMotionRuntime();
-    setRuntimeState(result.success ? "ready" : "error");
-    setStatus(result.message);
+    if (!result.success) {
+      setRuntimeState("error");
+      setStatus(result.message);
+      return;
+    }
+
+    const installed = await checkMotionRuntime().catch(() => false);
+    setRuntimeState(installed ? "ready" : "error");
+    setStatus(installed ? result.message : "Motion engine installed, but could not be verified.");
   }
 
   async function installFfmpeg() {
@@ -307,11 +378,15 @@ export function MotionBlurApp() {
     const result = await installFfmpegRuntime();
     if (result.success && result.outputPath) {
       setFfmpegPath(result.outputPath);
-      setFfmpegState("ready");
+      const valid = await validateFfmpeg(result.outputPath).catch(() => false);
+      setFfmpegValid(valid);
+      setFfmpegState(valid ? "ready" : "error");
+      setStatus(valid ? result.message : "Video tools installed, but ffmpeg could not be verified.");
     } else {
       setFfmpegState("error");
+      setFfmpegValid(false);
+      setStatus(result.message);
     }
-    setStatus(result.message);
   }
 
   async function render() {
@@ -325,6 +400,7 @@ export function MotionBlurApp() {
       const result = await renderJob(mode, ffmpegPath, videoPath, settings);
       setStatus(result.message);
       setOutputPath(result.outputPath);
+      setExportCompleteOpen(result.success && Boolean(result.outputPath));
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -424,6 +500,8 @@ export function MotionBlurApp() {
         </div>
       </section>
       <AppSettingsDialog
+        access={accessState}
+        accountChecking={accessChecking}
         ffmpegPath={ffmpegPath}
         ffmpegProgress={ffmpegProgress}
         ffmpegState={ffmpegState}
@@ -437,10 +515,17 @@ export function MotionBlurApp() {
         }}
         onInstallFfmpeg={installFfmpeg}
         onInstallRuntime={installRuntime}
+        onLogin={openLogin}
+        onLogout={() => {
+          void logoutAccount();
+        }}
         onOpenChange={setSettingsOpen}
         onPickFfmpeg={async () => {
           const selected = await pickFfmpeg();
           if (selected) setFfmpegPath(selected);
+        }}
+        onRefreshAccount={() => {
+          void refreshAccount();
         }}
         onSetFfmpegPath={setFfmpegPath}
         onShowOnboarding={() => {
@@ -449,7 +534,13 @@ export function MotionBlurApp() {
         }}
         open={settingsOpen}
         runtimeState={runtimeState}
+        session={authSession}
         updateState={updateState}
+      />
+      <ExportCompleteDialog
+        onOpenChange={setExportCompleteOpen}
+        open={exportCompleteOpen}
+        outputPath={outputPath}
       />
       {onboardingOpen && (
         <OnboardingTour
@@ -461,6 +552,16 @@ export function MotionBlurApp() {
           onInstallFfmpeg={installFfmpeg}
           onInstallRuntime={installRuntime}
           runtimeState={runtimeState}
+        />
+      )}
+      {!accessState?.access && (
+        <SubscriptionGate
+          access={accessState}
+          checking={accessChecking}
+          onRetry={() => {
+            void refreshAccount();
+          }}
+          session={authSession}
         />
       )}
     </main>
