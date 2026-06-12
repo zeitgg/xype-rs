@@ -923,6 +923,86 @@ pub async fn compress_video_simple(
 }
 
 #[tauri::command]
+pub async fn compress_video_custom(
+    app: tauri::AppHandle,
+    ffmpeg_path: String,
+    input_path: String,
+    mode: String,
+    crf: u32,
+    preset: String,
+    max_height: String,
+    fps: String,
+    audio_bitrate: u32,
+    fast_start: bool,
+) -> Result<ProcessResult, String> {
+    let ffmpeg = PathBuf::from(&ffmpeg_path);
+    let input = PathBuf::from(&input_path);
+    if !ffmpeg.exists() || !input.exists() {
+        return Ok(ProcessResult {
+            success: false,
+            message: "Missing FFmpeg or input video".to_string(),
+            output_path: None,
+        });
+    }
+
+    let preset = match preset.as_str() {
+        "veryfast" | "fast" | "medium" | "slow" => preset,
+        _ => "medium".to_string(),
+    };
+    let mode_crf = match mode.as_str() {
+        "small" => crf.max(24).min(32),
+        "high" => crf.max(16).min(22),
+        _ => crf.max(18).min(28),
+    };
+    let audio_bitrate = audio_bitrate.clamp(64, 320);
+    let duration = probe_duration(&ffmpeg, &input);
+    let output_path = input_output_path(&input, "compressed", "mp4");
+
+    let mut filters = Vec::new();
+    match max_height.as_str() {
+        "2160" | "1440" | "1080" | "720" | "480" => {
+            filters.push(format!("scale=-2:'min(ih,{max_height})'"));
+        }
+        _ => {}
+    }
+    match fps.as_str() {
+        "60" | "30" => filters.push(format!("fps={fps}")),
+        _ => {}
+    }
+    filters.push("format=yuv420p".to_string());
+
+    let mut cmd = hidden_cmd(&ffmpeg);
+    cmd.stdin(Stdio::null())
+        .arg("-y")
+        .arg("-i")
+        .arg(&input)
+        .arg("-vf")
+        .arg(filters.join(","))
+        .arg("-c:v")
+        .arg("libx264")
+        .arg("-preset")
+        .arg(preset)
+        .arg("-crf")
+        .arg(mode_crf.to_string())
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-b:a")
+        .arg(format!("{audio_bitrate}k"));
+
+    if fast_start {
+        cmd.arg("-movflags").arg("+faststart");
+    }
+
+    spawn_ffmpeg_with_progress(
+        app,
+        cmd,
+        output_path,
+        duration,
+        "Compressed video".to_string(),
+    )
+}
+
+#[tauri::command]
 pub async fn compress_discord_simple(
     app: tauri::AppHandle,
     ffmpeg_path: String,

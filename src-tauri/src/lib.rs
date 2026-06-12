@@ -282,6 +282,7 @@ pub fn run() {
             motion::install_motion_runtime,
             motion::render_video_motion_runtime,
             motion::compress_video_simple,
+            motion::compress_video_custom,
             motion::compress_discord_simple,
             motion::upscale_youtube_4k_simple,
             motion::tiktok_quality_patch,

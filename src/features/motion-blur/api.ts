@@ -107,7 +107,17 @@ export function renderJob(
     });
   }
   if (mode === "compress") {
-    return invoke<ProcessResult>("compress_video_simple", { ffmpegPath, inputPath });
+    return invoke<ProcessResult>("compress_video_custom", {
+      ffmpegPath,
+      inputPath,
+      mode: settings.compressMode,
+      crf: settings.compressCrf,
+      preset: settings.compressPreset,
+      maxHeight: settings.compressMaxHeight,
+      fps: settings.compressFps,
+      audioBitrate: settings.compressAudioBitrate,
+      fastStart: settings.compressFastStart,
+    });
   }
   if (mode === "discord") {
     return invoke<ProcessResult>("compress_discord_simple", { ffmpegPath, inputPath });

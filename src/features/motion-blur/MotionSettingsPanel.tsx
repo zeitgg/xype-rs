@@ -57,6 +57,25 @@ const presets: Array<{ id: BlurPreset; label: string; description: string }> = [
   { id: "recommended", label: "Recommended", description: "Best starting point for most videos." },
   { id: "strong", label: "Strong", description: "More blur for fast movement." },
 ];
+const compressModes: Array<{ label: string; value: MotionSettings["compressMode"] }> = [
+  { label: "Balanced", value: "balanced" },
+  { label: "Small file", value: "small" },
+  { label: "High quality", value: "high" },
+];
+const compressHeights: Array<{ label: string; value: MotionSettings["compressMaxHeight"] }> = [
+  { label: "Original", value: "source" },
+  { label: "4K", value: "2160" },
+  { label: "1440p", value: "1440" },
+  { label: "1080p", value: "1080" },
+  { label: "720p", value: "720" },
+  { label: "480p", value: "480" },
+];
+const compressFpsOptions: Array<{ label: string; value: MotionSettings["compressFps"] }> = [
+  { label: "Original", value: "source" },
+  { label: "60 FPS", value: "60" },
+  { label: "30 FPS", value: "30" },
+];
+const compressAudioRates: MotionSettings["compressAudioBitrate"][] = [96, 128, 160, 192, 256, 320];
 
 export function MotionSettingsPanel({
   encoderSupport,
@@ -284,11 +303,12 @@ export function MotionSettingsPanel({
               )}
             </PanelGroup>
           </div>
+        ) : mode === "compress" ? (
+          <CompressSettingsPanel settings={settings} update={update} />
         ) : (
           <div className="rounded-md border border-white/[0.075] bg-white/[0.025] p-3">
             <p className="text-sm font-semibold">
               {mode === "trim" && "Cut segment"}
-              {mode === "compress" && "Upload-ready compression"}
               {mode === "discord" && "Discord 8 MB copy"}
               {mode === "youtube" && "2160p YouTube copy"}
               {mode === "tiktok" && "TikTok quality copy"}
@@ -318,6 +338,96 @@ type TrimSegmentPanelProps = {
   onUpdate: (segments: TrimSegment[]) => void;
   settings: MotionSettings;
 };
+
+function CompressSettingsPanel({
+  settings,
+  update,
+}: {
+  settings: MotionSettings;
+  update: (next: Partial<MotionSettings>) => void;
+}) {
+  const estimatedOutput = [
+    compressHeights.find((item) => item.value === settings.compressMaxHeight)?.label,
+    compressFpsOptions.find((item) => item.value === settings.compressFps)?.label,
+    `${settings.compressAudioBitrate} kbps audio`,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  return (
+    <div className="space-y-4">
+      <PanelGroup title="Compress">
+        <ButtonGrid
+          label="Goal"
+          onChange={(compressMode) => {
+            const crf = compressMode === "small" ? 28 : compressMode === "high" ? 18 : 23;
+            update({ compressMode, compressCrf: crf });
+          }}
+          options={compressModes}
+          value={settings.compressMode}
+        />
+        <SliderField
+          label="Quality"
+          max={32}
+          min={16}
+          onChange={(compressCrf) => update({ compressCrf: Math.round(compressCrf) })}
+          step={1}
+          value={settings.compressCrf}
+        />
+        <p className="text-[11px] leading-4 text-white/35">
+          Lower quality number keeps more detail. Higher number makes a smaller file.
+        </p>
+      </PanelGroup>
+
+      <PanelGroup title="Video">
+        <SelectField
+          label="Size limit"
+          onChange={(compressMaxHeight) => update({ compressMaxHeight })}
+          options={compressHeights.map((item) => item.value)}
+          renderLabel={(value) => compressHeights.find((item) => item.value === value)?.label ?? value}
+          value={settings.compressMaxHeight}
+        />
+        <SelectField
+          label="Frame rate"
+          onChange={(compressFps) => update({ compressFps })}
+          options={compressFpsOptions.map((item) => item.value)}
+          renderLabel={(value) => compressFpsOptions.find((item) => item.value === value)?.label ?? value}
+          value={settings.compressFps}
+        />
+        <SelectField
+          label="Encode speed"
+          onChange={(compressPreset) => update({ compressPreset })}
+          options={["veryfast", "fast", "medium", "slow"]}
+          renderLabel={(value) => ({
+            veryfast: "Fastest",
+            fast: "Fast",
+            medium: "Normal",
+            slow: "Smaller file",
+          })[value]}
+          value={settings.compressPreset}
+        />
+      </PanelGroup>
+
+      <PanelGroup title="Audio">
+        <SelectField
+          label="Bitrate"
+          onChange={(value) =>
+            update({ compressAudioBitrate: Number(value) as MotionSettings["compressAudioBitrate"] })
+          }
+          options={compressAudioRates.map(String)}
+          renderLabel={(value) => `${value} kbps`}
+          value={String(settings.compressAudioBitrate)}
+        />
+        <ToggleRow
+          checked={settings.compressFastStart}
+          label="Web playback"
+          onCheckedChange={(compressFastStart) => update({ compressFastStart })}
+        />
+        <p className="truncate text-[11px] text-white/35">{estimatedOutput}</p>
+      </PanelGroup>
+    </div>
+  );
+}
 
 function PanelGroup({ children, title }: { children: ReactNode; title: string }) {
   return (

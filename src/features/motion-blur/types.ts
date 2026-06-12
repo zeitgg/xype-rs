@@ -31,6 +31,13 @@ export type MotionSettings = {
   encoder: "libx264" | "h264_nvenc";
   crf: number;
   timescale: number;
+  compressMode: "balanced" | "small" | "high";
+  compressCrf: number;
+  compressPreset: "veryfast" | "fast" | "medium" | "slow";
+  compressMaxHeight: "source" | "2160" | "1440" | "1080" | "720" | "480";
+  compressFps: "source" | "60" | "30";
+  compressAudioBitrate: 96 | 128 | 160 | 192 | 256 | 320;
+  compressFastStart: boolean;
   trimStart: number;
   trimEnd: number;
   trimSegments: TrimSegment[];
@@ -78,6 +85,13 @@ export const defaultMotionSettings: MotionSettings = {
   encoder: "libx264",
   crf: 18,
   timescale: 1,
+  compressMode: "balanced",
+  compressCrf: 23,
+  compressPreset: "medium",
+  compressMaxHeight: "1080",
+  compressFps: "source",
+  compressAudioBitrate: 160,
+  compressFastStart: true,
   trimStart: 0,
   trimEnd: 10,
   trimSegments: [],
@@ -102,6 +116,13 @@ export const blurPresets: Record<BlurPreset, MotionSettings> = {
     encoder: "libx264",
     crf: 18,
     timescale: 1,
+    compressMode: "balanced",
+    compressCrf: 23,
+    compressPreset: "medium",
+    compressMaxHeight: "1080",
+    compressFps: "source",
+    compressAudioBitrate: 160,
+    compressFastStart: true,
     trimStart: 0,
     trimEnd: 10,
     trimSegments: [],
@@ -125,6 +146,13 @@ export const blurPresets: Record<BlurPreset, MotionSettings> = {
     encoder: "libx264",
     crf: 18,
     timescale: 1,
+    compressMode: "balanced",
+    compressCrf: 23,
+    compressPreset: "medium",
+    compressMaxHeight: "1080",
+    compressFps: "source",
+    compressAudioBitrate: 160,
+    compressFastStart: true,
     trimStart: 0,
     trimEnd: 10,
     trimSegments: [],
