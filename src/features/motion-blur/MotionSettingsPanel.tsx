@@ -291,7 +291,7 @@ export function MotionSettingsPanel({
               {mode === "compress" && "Upload-ready compression"}
               {mode === "discord" && "Discord 8 MB copy"}
               {mode === "youtube" && "2160p YouTube copy"}
-              {mode === "tiktok" && "TikTok FPS copy"}
+              {mode === "tiktok" && "TikTok quality copy"}
             </p>
             <p className="mt-1 text-xs text-white/38">
               {mode === "trim"

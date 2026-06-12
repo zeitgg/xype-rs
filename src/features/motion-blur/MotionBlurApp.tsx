@@ -429,7 +429,7 @@ export function MotionBlurApp() {
 
   const canRender = useMemo(
     () =>
-      ffmpegValid === true &&
+      (mode === "tiktok" || ffmpegValid === true) &&
       (mode !== "motion" || runtimeState === "ready") &&
       Boolean(videoPath) &&
       !processing,

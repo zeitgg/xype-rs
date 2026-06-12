@@ -152,7 +152,10 @@ async fn fetch_subscription_status(token: &str) -> Result<bool, String> {
         .map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
-        return Err(format!("Subscription check failed: HTTP {}", response.status()));
+        return Err(format!(
+            "Subscription check failed: HTTP {}",
+            response.status()
+        ));
     }
 
     let body = response
@@ -238,7 +241,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
 
             #[cfg(any(target_os = "linux", all(debug_assertions, windows)))]
             app.deep_link().register_all()?;
@@ -280,7 +284,7 @@ pub fn run() {
             motion::compress_video_simple,
             motion::compress_discord_simple,
             motion::upscale_youtube_4k_simple,
-            motion::tiktok_fps_simple,
+            motion::tiktok_quality_patch,
             motion::trim_video_simple,
             motion::trim_video_queue_segment,
             motion::cleanup_motion_queue_file,

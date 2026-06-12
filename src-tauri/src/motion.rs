@@ -534,7 +534,8 @@ pub async fn render_video_motion_runtime(
 
     let runtime = motion_runtime_dir(&app)?;
     refresh_motion_script(&app, &runtime)?;
-    let vspipe = find_named_file(&runtime, "vspipe.exe").unwrap_or_else(|| runtime.join("vspipe.exe"));
+    let vspipe =
+        find_named_file(&runtime, "vspipe.exe").unwrap_or_else(|| runtime.join("vspipe.exe"));
     let script = runtime.join("xype_motion.vpy");
     if !vspipe.exists() || !script.exists() {
         return Ok(ProcessResult {
@@ -1020,56 +1021,830 @@ pub async fn upscale_youtube_4k_simple(
     )
 }
 
+const TIKTOK_SIZE_WARNING_BYTES: u64 = 90 * 1024 * 1024;
+const FAKE_AVC_SAMPLE: [u8; 8] = [0, 0, 0, 4, 0, 0, 0, 0];
+
+#[derive(Clone, Debug)]
+struct Mp4BoxInfo {
+    box_type: [u8; 4],
+    start: usize,
+    end: usize,
+    header: usize,
+    size: u64,
+}
+
+#[derive(Debug)]
+struct MovieHeaderInfo {
+    timescale: u32,
+    duration: u64,
+}
+
+#[derive(Debug)]
+struct VideoPatchInfo {
+    sample_count: u32,
+    fake_count: u32,
+    new_mdhd_duration: u64,
+    new_movie_duration: u64,
+    new_mvhd_duration: u64,
+    chunk_count: u32,
+    stsc_desc_id: u32,
+}
+
 #[tauri::command]
-pub fn tiktok_fps_simple(
-    ffmpeg_path: String,
+pub fn tiktok_quality_patch(
+    app: tauri::AppHandle,
     input_path: String,
-    fps: u32,
 ) -> Result<ProcessResult, String> {
-    let ffmpeg = PathBuf::from(&ffmpeg_path);
     let input = PathBuf::from(&input_path);
-    if !ffmpeg.exists() || !input.exists() {
+    if !input.exists() {
         return Ok(ProcessResult {
             success: false,
-            message: "Missing FFmpeg or input video".to_string(),
+            message: "Missing input video".to_string(),
             output_path: None,
         });
     }
 
-    let scale = match fps {
-        60 => 2,
-        120 => 6,
-        240 => 12,
-        _ => 2,
-    };
-    let output_path = input_output_path(&input, "tiktok", "mp4");
-    let output = hidden_cmd(&ffmpeg)
-        .arg("-y")
-        .arg("-itsscale")
-        .arg(scale.to_string())
-        .arg("-i")
-        .arg(&input)
-        .arg("-c:v")
-        .arg("copy")
-        .arg("-c:a")
-        .arg("copy")
-        .arg(&output_path)
-        .output()
-        .map_err(|e| e.to_string())?;
+    let bytes = fs::read(&input).map_err(|e| e.to_string())?;
+    let input_size = bytes.len() as u64;
+    let (patched, real_samples, fake_samples) = build_tiktok_quality_patch(&bytes)?;
+    let output_path = input_output_path(&input, "tiktok_quality", "mp4");
+    fs::write(&output_path, patched).map_err(|e| e.to_string())?;
+    let _ = app.emit("render-progress", 1.0_f64);
 
-    if output.status.success() && output_path.exists() {
-        Ok(ProcessResult {
-            success: true,
-            message: "Prepared TikTok FPS copy".to_string(),
-            output_path: output_path.to_str().map(str::to_string),
+    let warning = if input_size > TIKTOK_SIZE_WARNING_BYTES {
+        " File is over 90 MB; compress it more before upload."
+    } else {
+        ""
+    };
+
+    Ok(ProcessResult {
+        success: true,
+        message: format!(
+            "Prepared TikTok quality copy ({real_samples}+{fake_samples} samples).{warning}"
+        ),
+        output_path: output_path.to_str().map(str::to_string),
+    })
+}
+
+fn build_tiktok_quality_patch(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {
+    let boxes = parse_mp4_boxes(bytes, 0, bytes.len())?;
+    let moov = boxes
+        .iter()
+        .find(|box_info| box_info.box_type == *b"moov")
+        .ok_or_else(|| "No moov atom found.".to_string())?;
+    let mdat = boxes
+        .iter()
+        .find(|box_info| box_info.box_type == *b"mdat")
+        .ok_or_else(|| "No mdat atom found.".to_string())?;
+
+    let moov_bytes = &bytes[moov.start..moov.end];
+    let mdat_bytes = &bytes[mdat.start..mdat.end];
+    let info = analyze_tiktok_moov(moov_bytes)?;
+    let trailing_eight = trailing_eight_video_samples(moov_bytes)?;
+    if trailing_eight >= 100 && trailing_eight > info.sample_count / 12 {
+        return Err(format!(
+            "This file already looks patched ({trailing_eight} trailing 8-byte samples). Use a clean export instead."
+        ));
+    }
+
+    let test_moov = build_patched_moov(moov_bytes, &info, 0, 0)?;
+    let moov_delta = test_moov.len() as i64 - moov_bytes.len() as i64;
+    let moov_before_mdat = moov.start < mdat.start;
+    let shift_existing_offsets = if moov_before_mdat { moov_delta } else { 0 };
+    let old_mdat_data_size = mdat.size - mdat.header as u64;
+    let new_mdat_start = (mdat.start as i64 + if moov_before_mdat { moov_delta } else { 0 }) as u64;
+    let fake_chunk_offset = new_mdat_start + mdat.header as u64 + old_mdat_data_size;
+    let final_moov =
+        build_patched_moov(moov_bytes, &info, shift_existing_offsets, fake_chunk_offset)?;
+    let final_mdat = patch_mdat(mdat_bytes, info.fake_count)?;
+
+    let mut output = Vec::with_capacity(bytes.len() + final_moov.len() + final_mdat.len());
+    for box_info in boxes {
+        if box_info.box_type == *b"moov" {
+            output.extend_from_slice(&final_moov);
+        } else if box_info.box_type == *b"mdat" {
+            output.extend_from_slice(&final_mdat);
+        } else {
+            output.extend_from_slice(&bytes[box_info.start..box_info.end]);
+        }
+    }
+
+    Ok((output, info.sample_count, info.fake_count))
+}
+
+fn analyze_tiktok_moov(moov: &[u8]) -> Result<VideoPatchInfo, String> {
+    let mvhd = find_mp4_child(moov, *b"mvhd")?.ok_or_else(|| "No mvhd atom found.".to_string())?;
+    let movie = parse_mvhd(mvhd)?;
+    if movie.timescale == 0 {
+        return Err("Movie timescale is zero.".to_string());
+    }
+
+    for child in mp4_children(moov)? {
+        if child.box_type != *b"trak" {
+            continue;
+        }
+        let trak = &moov[child.start..child.end];
+        if handler_type(trak)? != *b"vide" {
+            continue;
+        }
+
+        let mdhd = find_mp4_path(trak, &[*b"mdia", *b"mdhd"])?
+            .ok_or_else(|| "Video track is missing mdhd.".to_string())?;
+        let stbl = find_mp4_path(trak, &[*b"mdia", *b"minf", *b"stbl"])?
+            .ok_or_else(|| "Video track is missing stbl.".to_string())?;
+        let stsd = find_mp4_child(stbl, *b"stsd")?;
+        let codec = stsd.and_then(stsd_codec).unwrap_or([0, 0, 0, 0]);
+        if codec != *b"avc1" && codec != *b"avc3" {
+            let label = std::str::from_utf8(&codec).unwrap_or("unknown");
+            return Err(format!(
+                "Video codec sample entry is {label}, not avc1/avc3. TikTok quality patch supports H.264 MP4 only."
+            ));
+        }
+
+        let stts = find_mp4_child(stbl, *b"stts")?
+            .ok_or_else(|| "Video track is missing stts.".to_string())?;
+        let stsz = find_mp4_child(stbl, *b"stsz")?
+            .ok_or_else(|| "Video track is missing stsz.".to_string())?;
+        let stsc = find_mp4_child(stbl, *b"stsc")?
+            .ok_or_else(|| "Video track is missing stsc.".to_string())?;
+        let stco = find_mp4_child(stbl, *b"stco")?
+            .or(find_mp4_child(stbl, *b"co64")?)
+            .ok_or_else(|| "Video track is missing stco/co64.".to_string())?;
+
+        let mdhd_info = parse_mdhd(mdhd)?;
+        let (stts_sample_count, stts_total_ticks, stts_last_delta) = parse_stts(stts)?;
+        let (sample_size, stsz_sample_count) = parse_stsz_header(stsz)?;
+        if sample_size != 0 {
+            return Err("Fixed-size stsz video samples are not supported.".to_string());
+        }
+        if stts_sample_count != stsz_sample_count {
+            return Err(format!(
+                "stts sample count ({stts_sample_count}) does not match stsz sample count ({stsz_sample_count})."
+            ));
+        }
+        if stts_last_delta == 0 {
+            return Err("Could not read frame delta from stts.".to_string());
+        }
+
+        let (_, _, stsc_desc_id) = parse_stsc_last(stsc)?;
+        let chunk_count = parse_chunk_count(stco)?;
+        let edit_skip = find_mp4_path(trak, &[*b"edts", *b"elst"])?
+            .and_then(|elst| parse_elst(elst).ok())
+            .filter(|media_time| *media_time > 0)
+            .unwrap_or(0) as u64;
+
+        let target_frames = ((stsz_sample_count as u64 * 20) + 2) / 3;
+        let fake_count = target_frames
+            .checked_sub(stsz_sample_count as u64)
+            .ok_or_else(|| "Target duration is not longer than the current video.".to_string())?;
+        if fake_count < 1 {
+            return Err("Target duration is not longer than the current video.".to_string());
+        }
+        if fake_count > 250_000 {
+            return Err(format!(
+                "Refusing to add {fake_count} fake samples. Use a shorter source or lower target."
+            ));
+        }
+
+        let fake_ticks = fake_count * stts_last_delta as u64;
+        let new_stts_total = stts_total_ticks + fake_ticks;
+        let new_mdhd_duration = mdhd_info.duration + fake_ticks;
+        let new_visible_ticks = new_stts_total.saturating_sub(edit_skip);
+        let new_movie_duration = ((new_visible_ticks as f64 / mdhd_info.timescale as f64)
+            * movie.timescale as f64)
+            .round() as u64;
+        let new_mvhd_duration = movie.duration.max(new_movie_duration);
+
+        return Ok(VideoPatchInfo {
+            sample_count: stsz_sample_count,
+            fake_count: fake_count as u32,
+            new_mdhd_duration,
+            new_movie_duration,
+            new_mvhd_duration,
+            chunk_count,
+            stsc_desc_id,
+        });
+    }
+
+    Err("No AVC/H.264 video track found.".to_string())
+}
+
+fn box_type_at(bytes: &[u8], offset: usize) -> Result<[u8; 4], String> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| "Truncated MP4 box type.".to_string())?;
+    Ok([slice[0], slice[1], slice[2], slice[3]])
+}
+
+fn read_u32_be(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let slice = bytes
+        .get(offset..offset + 4)
+        .ok_or_else(|| "Truncated uint32 field.".to_string())?;
+    Ok(u32::from_be_bytes([slice[0], slice[1], slice[2], slice[3]]))
+}
+
+fn read_i32_be(bytes: &[u8], offset: usize) -> Result<i32, String> {
+    Ok(read_u32_be(bytes, offset)? as i32)
+}
+
+fn read_u64_be(bytes: &[u8], offset: usize) -> Result<u64, String> {
+    let slice = bytes
+        .get(offset..offset + 8)
+        .ok_or_else(|| "Truncated uint64 field.".to_string())?;
+    Ok(u64::from_be_bytes([
+        slice[0], slice[1], slice[2], slice[3], slice[4], slice[5], slice[6], slice[7],
+    ]))
+}
+
+fn write_u32_be(bytes: &mut [u8], offset: usize, value: u64) -> Result<(), String> {
+    if value > u32::MAX as u64 {
+        return Err(format!("uint32 overflow writing {value}."));
+    }
+    let target = bytes
+        .get_mut(offset..offset + 4)
+        .ok_or_else(|| "Truncated uint32 write.".to_string())?;
+    target.copy_from_slice(&(value as u32).to_be_bytes());
+    Ok(())
+}
+
+fn write_u64_be(bytes: &mut [u8], offset: usize, value: u64) -> Result<(), String> {
+    let target = bytes
+        .get_mut(offset..offset + 8)
+        .ok_or_else(|| "Truncated uint64 write.".to_string())?;
+    target.copy_from_slice(&value.to_be_bytes());
+    Ok(())
+}
+
+fn parse_mp4_boxes(bytes: &[u8], start: usize, end: usize) -> Result<Vec<Mp4BoxInfo>, String> {
+    let mut boxes = Vec::new();
+    let mut position = start;
+    while position + 8 <= end {
+        let size32 = read_u32_be(bytes, position)? as u64;
+        let box_type = box_type_at(bytes, position + 4)?;
+        let (size, header) = if size32 == 1 {
+            (read_u64_be(bytes, position + 8)?, 16)
+        } else if size32 == 0 {
+            ((end - position) as u64, 8)
+        } else {
+            (size32, 8)
+        };
+        if size < header as u64 {
+            return Err(format!(
+                "Bad MP4 box {} at {position}.",
+                mp4_type_label(box_type)
+            ));
+        }
+        let box_end = position
+            .checked_add(size as usize)
+            .ok_or_else(|| "MP4 box size overflow.".to_string())?;
+        if box_end > end {
+            return Err(format!(
+                "Bad MP4 box {} at {position}, size {size}.",
+                mp4_type_label(box_type)
+            ));
+        }
+        boxes.push(Mp4BoxInfo {
+            box_type,
+            start: position,
+            end: box_end,
+            header,
+            size,
+        });
+        position = box_end;
+    }
+    Ok(boxes)
+}
+
+fn mp4_type_label(box_type: [u8; 4]) -> String {
+    String::from_utf8_lossy(&box_type).into_owned()
+}
+
+fn mp4_header_size(bytes: &[u8]) -> Result<usize, String> {
+    Ok(if read_u32_be(bytes, 0)? == 1 { 16 } else { 8 })
+}
+
+fn mp4_box_type(bytes: &[u8]) -> Result<[u8; 4], String> {
+    box_type_at(bytes, 4)
+}
+
+fn mp4_child_start(bytes: &[u8]) -> Result<usize, String> {
+    let header = mp4_header_size(bytes)?;
+    Ok(if mp4_box_type(bytes)? == *b"meta" {
+        header + 4
+    } else {
+        header
+    })
+}
+
+fn mp4_children(bytes: &[u8]) -> Result<Vec<Mp4BoxInfo>, String> {
+    parse_mp4_boxes(bytes, mp4_child_start(bytes)?, bytes.len())
+}
+
+fn find_mp4_child(bytes: &[u8], target: [u8; 4]) -> Result<Option<&[u8]>, String> {
+    for child in mp4_children(bytes)? {
+        if child.box_type == target {
+            return Ok(Some(&bytes[child.start..child.end]));
+        }
+    }
+    Ok(None)
+}
+
+fn find_mp4_path<'a>(bytes: &'a [u8], path: &[[u8; 4]]) -> Result<Option<&'a [u8]>, String> {
+    let mut current = bytes;
+    for target in path {
+        match find_mp4_child(current, *target)? {
+            Some(child) => current = child,
+            None => return Ok(None),
+        }
+    }
+    Ok(Some(current))
+}
+
+fn parse_mvhd(mvhd: &[u8]) -> Result<MovieHeaderInfo, String> {
+    let header = mp4_header_size(mvhd)?;
+    let version = *mvhd
+        .get(header)
+        .ok_or_else(|| "Truncated mvhd.".to_string())?;
+    if version == 0 {
+        Ok(MovieHeaderInfo {
+            timescale: read_u32_be(mvhd, 20)?,
+            duration: read_u32_be(mvhd, 24)? as u64,
         })
     } else {
-        Ok(ProcessResult {
-            success: false,
-            message: format!("FFmpeg error: {}", String::from_utf8_lossy(&output.stderr)),
-            output_path: None,
+        Ok(MovieHeaderInfo {
+            timescale: read_u32_be(mvhd, 28)?,
+            duration: read_u64_be(mvhd, 32)?,
         })
     }
+}
+
+fn parse_mdhd(mdhd: &[u8]) -> Result<MovieHeaderInfo, String> {
+    let header = mp4_header_size(mdhd)?;
+    let version = *mdhd
+        .get(header)
+        .ok_or_else(|| "Truncated mdhd.".to_string())?;
+    if version == 0 {
+        Ok(MovieHeaderInfo {
+            timescale: read_u32_be(mdhd, 20)?,
+            duration: read_u32_be(mdhd, 24)? as u64,
+        })
+    } else {
+        Ok(MovieHeaderInfo {
+            timescale: read_u32_be(mdhd, 28)?,
+            duration: read_u64_be(mdhd, 32)?,
+        })
+    }
+}
+
+fn handler_type(trak: &[u8]) -> Result<[u8; 4], String> {
+    let hdlr = find_mp4_path(trak, &[*b"mdia", *b"hdlr"])?
+        .ok_or_else(|| "Track is missing hdlr.".to_string())?;
+    box_type_at(hdlr, mp4_header_size(hdlr)? + 8)
+}
+
+fn stsd_codec(stsd: &[u8]) -> Option<[u8; 4]> {
+    if read_u32_be(stsd, 12).ok()? == 0 {
+        return None;
+    }
+    box_type_at(stsd, 20).ok()
+}
+
+fn parse_stts(stts: &[u8]) -> Result<(u32, u64, u32), String> {
+    let entry_count = read_u32_be(stts, 12)?;
+    let mut sample_count = 0_u64;
+    let mut total_ticks = 0_u64;
+    let mut last_delta = 0_u32;
+    for index in 0..entry_count as usize {
+        let offset = 16 + index * 8;
+        let count = read_u32_be(stts, offset)? as u64;
+        let delta = read_u32_be(stts, offset + 4)?;
+        sample_count += count;
+        total_ticks += count * delta as u64;
+        last_delta = delta;
+    }
+    Ok((sample_count as u32, total_ticks, last_delta))
+}
+
+fn parse_stsz_header(stsz: &[u8]) -> Result<(u32, u32), String> {
+    Ok((read_u32_be(stsz, 12)?, read_u32_be(stsz, 16)?))
+}
+
+fn trailing_eight_video_samples(moov: &[u8]) -> Result<u32, String> {
+    for child in mp4_children(moov)? {
+        if child.box_type != *b"trak" {
+            continue;
+        }
+        let trak = &moov[child.start..child.end];
+        if handler_type(trak)? != *b"vide" {
+            continue;
+        }
+        let stsz = find_mp4_path(trak, &[*b"mdia", *b"minf", *b"stbl", *b"stsz"])?
+            .ok_or_else(|| "Video track is missing stsz.".to_string())?;
+        let (sample_size, sample_count) = parse_stsz_header(stsz)?;
+        if sample_size != 0 {
+            return Ok(0);
+        }
+        let mut trailing = 0;
+        let limit = sample_count.saturating_sub(5000);
+        for index in (limit..sample_count).rev() {
+            if read_u32_be(stsz, 20 + index as usize * 4)? == 8 {
+                trailing += 1;
+            } else {
+                break;
+            }
+        }
+        return Ok(trailing);
+    }
+    Ok(0)
+}
+
+fn parse_stsc_last(stsc: &[u8]) -> Result<(u32, u32, u32), String> {
+    let entry_count = read_u32_be(stsc, 12)?;
+    if entry_count == 0 {
+        return Err("Video stsc has no entries.".to_string());
+    }
+    let offset = 16 + (entry_count as usize - 1) * 12;
+    Ok((
+        read_u32_be(stsc, offset)?,
+        read_u32_be(stsc, offset + 4)?,
+        read_u32_be(stsc, offset + 8)?,
+    ))
+}
+
+fn parse_chunk_count(stco_or_co64: &[u8]) -> Result<u32, String> {
+    read_u32_be(stco_or_co64, 12)
+}
+
+fn parse_elst(elst: &[u8]) -> Result<i64, String> {
+    let header = mp4_header_size(elst)?;
+    let version = *elst
+        .get(header)
+        .ok_or_else(|| "Truncated elst.".to_string())?;
+    let entry_count = read_u32_be(elst, 12)?;
+    if entry_count == 0 {
+        return Ok(0);
+    }
+    if version == 0 {
+        Ok(read_i32_be(elst, 20)? as i64)
+    } else {
+        Ok(read_u64_be(elst, 24)? as i64)
+    }
+}
+
+fn make_mp4_box(box_type: [u8; 4], payload: &[u8], large: bool) -> Result<Vec<u8>, String> {
+    let header = if large { 16 } else { 8 };
+    let size = payload.len() + header;
+    let mut out = vec![0; size];
+    if large {
+        write_u32_be(&mut out, 0, 1)?;
+        out[4..8].copy_from_slice(&box_type);
+        write_u64_be(&mut out, 8, size as u64)?;
+        out[16..].copy_from_slice(payload);
+    } else {
+        write_u32_be(&mut out, 0, size as u64)?;
+        out[4..8].copy_from_slice(&box_type);
+        out[8..].copy_from_slice(payload);
+    }
+    Ok(out)
+}
+
+fn rebuild_container<F>(box_bytes: &[u8], mut map_child: F) -> Result<Vec<u8>, String>
+where
+    F: FnMut(&[u8], [u8; 4]) -> Result<Vec<u8>, String>,
+{
+    let header = mp4_header_size(box_bytes)?;
+    let child_start = mp4_child_start(box_bytes)?;
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&box_bytes[header..child_start]);
+    for child in parse_mp4_boxes(box_bytes, child_start, box_bytes.len())? {
+        payload.extend(map_child(
+            &box_bytes[child.start..child.end],
+            child.box_type,
+        )?);
+    }
+    make_mp4_box(mp4_box_type(box_bytes)?, &payload, header == 16)
+}
+
+fn patch_mvhd(mvhd: &[u8], duration: u64) -> Result<Vec<u8>, String> {
+    let mut out = mvhd.to_vec();
+    let version = out[mp4_header_size(&out)?];
+    if version == 0 {
+        write_u32_be(&mut out, 24, duration)?;
+    } else {
+        write_u64_be(&mut out, 32, duration)?;
+    }
+    Ok(out)
+}
+
+fn patch_tkhd(tkhd: &[u8], duration: u64) -> Result<Vec<u8>, String> {
+    let mut out = tkhd.to_vec();
+    let version = out[mp4_header_size(&out)?];
+    if version == 0 {
+        write_u32_be(&mut out, 28, duration)?;
+    } else {
+        write_u64_be(&mut out, 36, duration)?;
+    }
+    Ok(out)
+}
+
+fn patch_mdhd(mdhd: &[u8], duration: u64) -> Result<Vec<u8>, String> {
+    let mut out = mdhd.to_vec();
+    let version = out[mp4_header_size(&out)?];
+    if version == 0 {
+        write_u32_be(&mut out, 24, duration)?;
+    } else {
+        write_u64_be(&mut out, 32, duration)?;
+    }
+    Ok(out)
+}
+
+fn patch_elst(elst: &[u8], segment_duration: u64) -> Result<Vec<u8>, String> {
+    let mut out = elst.to_vec();
+    let version = out[mp4_header_size(&out)?];
+    if version == 0 {
+        write_u32_be(&mut out, 16, segment_duration)?;
+    } else {
+        write_u64_be(&mut out, 16, segment_duration)?;
+    }
+    Ok(out)
+}
+
+fn patch_stts(stts: &[u8], fake_count: u32) -> Result<Vec<u8>, String> {
+    let mut out = stts.to_vec();
+    let entry_count = read_u32_be(&out, 12)?;
+    if entry_count == 0 {
+        return Err("Cannot patch empty stts.".to_string());
+    }
+    let last = 16 + (entry_count as usize - 1) * 8;
+    let count = read_u32_be(&out, last)? as u64 + fake_count as u64;
+    write_u32_be(&mut out, last, count)?;
+    Ok(out)
+}
+
+fn patch_ctts(ctts: &[u8], fake_count: u32) -> Result<Vec<u8>, String> {
+    let entry_count = read_u32_be(ctts, 12)?;
+    if entry_count == 0 {
+        return Ok(ctts.to_vec());
+    }
+    let last = 16 + (entry_count as usize - 1) * 8;
+    let version = ctts[mp4_header_size(ctts)?];
+    let last_offset = if version == 0 {
+        read_u32_be(ctts, last + 4)? as i64
+    } else {
+        read_i32_be(ctts, last + 4)? as i64
+    };
+    if last_offset == 0 {
+        let mut out = ctts.to_vec();
+        let count = read_u32_be(&out, last)? as u64 + fake_count as u64;
+        write_u32_be(&mut out, last, count)?;
+        return Ok(out);
+    }
+
+    let header = mp4_header_size(ctts)?;
+    let mut payload = Vec::with_capacity(ctts.len() - header + 8);
+    payload.extend_from_slice(&ctts[header..]);
+    write_u32_be(&mut payload, 4, entry_count as u64 + 1)?;
+    payload.extend_from_slice(&fake_count.to_be_bytes());
+    payload.extend_from_slice(&0_u32.to_be_bytes());
+    make_mp4_box(*b"ctts", &payload, header == 16)
+}
+
+fn patch_stsz(stsz: &[u8], fake_count: u32) -> Result<Vec<u8>, String> {
+    let header = mp4_header_size(stsz)?;
+    let mut payload = Vec::with_capacity(stsz.len() - header + fake_count as usize * 4);
+    payload.extend_from_slice(&stsz[header..]);
+    let old_count = read_u32_be(stsz, 16)?;
+    write_u32_be(&mut payload, 8, old_count as u64 + fake_count as u64)?;
+    for _ in 0..fake_count {
+        payload.extend_from_slice(&8_u32.to_be_bytes());
+    }
+    make_mp4_box(*b"stsz", &payload, header == 16)
+}
+
+fn patch_stsc(
+    stsc: &[u8],
+    fake_count: u32,
+    first_chunk: u32,
+    desc_id: u32,
+) -> Result<Vec<u8>, String> {
+    let header = mp4_header_size(stsc)?;
+    let entry_count = read_u32_be(stsc, 12)?;
+    let mut payload = Vec::with_capacity(stsc.len() - header + 12);
+    payload.extend_from_slice(&stsc[header..]);
+    write_u32_be(&mut payload, 4, entry_count as u64 + 1)?;
+    payload.extend_from_slice(&first_chunk.to_be_bytes());
+    payload.extend_from_slice(&fake_count.to_be_bytes());
+    payload.extend_from_slice(&desc_id.to_be_bytes());
+    make_mp4_box(*b"stsc", &payload, header == 16)
+}
+
+fn patch_chunk_offsets(
+    stco: &[u8],
+    shift: i64,
+    append_offset: Option<u64>,
+) -> Result<Vec<u8>, String> {
+    let header = mp4_header_size(stco)?;
+    let box_type = mp4_box_type(stco)?;
+    let step = if box_type == *b"co64" { 8 } else { 4 };
+    let old_count = read_u32_be(stco, 12)?;
+    let mut payload =
+        Vec::with_capacity(stco.len() - header + append_offset.map(|_| step).unwrap_or(0));
+    payload.extend_from_slice(&stco[header..]);
+    write_u32_be(
+        &mut payload,
+        4,
+        old_count as u64 + u64::from(append_offset.is_some()),
+    )?;
+    for index in 0..old_count as usize {
+        let payload_offset = 8 + index * step;
+        let source_offset = header + payload_offset;
+        let old = if step == 8 {
+            read_u64_be(stco, source_offset)?
+        } else {
+            read_u32_be(stco, source_offset)? as u64
+        };
+        let shifted = if shift >= 0 {
+            old + shift as u64
+        } else {
+            old.checked_sub((-shift) as u64)
+                .ok_or_else(|| "Chunk offset shift underflow.".to_string())?
+        };
+        if step == 8 {
+            write_u64_be(&mut payload, payload_offset, shifted)?;
+        } else {
+            write_u32_be(&mut payload, payload_offset, shifted)?;
+        }
+    }
+    if let Some(offset) = append_offset {
+        if step == 8 {
+            payload.extend_from_slice(&offset.to_be_bytes());
+        } else {
+            if offset > u32::MAX as u64 {
+                return Err("Patched chunk offset exceeds 32-bit stco range.".to_string());
+            }
+            payload.extend_from_slice(&(offset as u32).to_be_bytes());
+        }
+    }
+    make_mp4_box(box_type, &payload, header == 16)
+}
+
+fn build_patched_moov(
+    moov: &[u8],
+    info: &VideoPatchInfo,
+    shift_existing_offsets: i64,
+    fake_chunk_offset: u64,
+) -> Result<Vec<u8>, String> {
+    rebuild_container(moov, |child, child_type| {
+        if child_type == *b"mvhd" {
+            patch_mvhd(child, info.new_mvhd_duration)
+        } else if child_type == *b"trak" {
+            rebuild_patched_trak(child, info, shift_existing_offsets, fake_chunk_offset)
+        } else {
+            Ok(child.to_vec())
+        }
+    })
+}
+
+fn rebuild_patched_trak(
+    trak: &[u8],
+    info: &VideoPatchInfo,
+    shift_existing_offsets: i64,
+    fake_chunk_offset: u64,
+) -> Result<Vec<u8>, String> {
+    let is_video = handler_type(trak)? == *b"vide";
+    rebuild_container(trak, |child, child_type| {
+        if is_video && child_type == *b"tkhd" {
+            patch_tkhd(child, info.new_movie_duration)
+        } else if child_type == *b"edts" {
+            rebuild_container(child, |edts_child, edts_type| {
+                if is_video && edts_type == *b"elst" {
+                    patch_elst(edts_child, info.new_movie_duration)
+                } else {
+                    Ok(edts_child.to_vec())
+                }
+            })
+        } else if child_type == *b"mdia" {
+            rebuild_patched_mdia(
+                child,
+                is_video,
+                info,
+                shift_existing_offsets,
+                fake_chunk_offset,
+            )
+        } else {
+            Ok(child.to_vec())
+        }
+    })
+}
+
+fn rebuild_patched_mdia(
+    mdia: &[u8],
+    is_video: bool,
+    info: &VideoPatchInfo,
+    shift_existing_offsets: i64,
+    fake_chunk_offset: u64,
+) -> Result<Vec<u8>, String> {
+    rebuild_container(mdia, |child, child_type| {
+        if is_video && child_type == *b"mdhd" {
+            patch_mdhd(child, info.new_mdhd_duration)
+        } else if child_type == *b"minf" {
+            rebuild_patched_minf(
+                child,
+                is_video,
+                info,
+                shift_existing_offsets,
+                fake_chunk_offset,
+            )
+        } else {
+            Ok(child.to_vec())
+        }
+    })
+}
+
+fn rebuild_patched_minf(
+    minf: &[u8],
+    is_video: bool,
+    info: &VideoPatchInfo,
+    shift_existing_offsets: i64,
+    fake_chunk_offset: u64,
+) -> Result<Vec<u8>, String> {
+    rebuild_container(minf, |child, child_type| {
+        if child_type == *b"stbl" {
+            rebuild_patched_stbl(
+                child,
+                is_video,
+                info,
+                shift_existing_offsets,
+                fake_chunk_offset,
+            )
+        } else {
+            Ok(child.to_vec())
+        }
+    })
+}
+
+fn rebuild_patched_stbl(
+    stbl: &[u8],
+    is_video: bool,
+    info: &VideoPatchInfo,
+    shift_existing_offsets: i64,
+    fake_chunk_offset: u64,
+) -> Result<Vec<u8>, String> {
+    rebuild_container(stbl, |child, child_type| {
+        if child_type == *b"stco" || child_type == *b"co64" {
+            patch_chunk_offsets(
+                child,
+                shift_existing_offsets,
+                if is_video {
+                    Some(fake_chunk_offset)
+                } else {
+                    None
+                },
+            )
+        } else if !is_video {
+            Ok(child.to_vec())
+        } else if child_type == *b"stts" {
+            patch_stts(child, info.fake_count)
+        } else if child_type == *b"ctts" {
+            patch_ctts(child, info.fake_count)
+        } else if child_type == *b"stsz" {
+            patch_stsz(child, info.fake_count)
+        } else if child_type == *b"stsc" {
+            patch_stsc(
+                child,
+                info.fake_count,
+                info.chunk_count + 1,
+                info.stsc_desc_id,
+            )
+        } else {
+            Ok(child.to_vec())
+        }
+    })
+}
+
+fn patch_mdat(mdat: &[u8], fake_count: u32) -> Result<Vec<u8>, String> {
+    if read_u32_be(mdat, 0)? == 0 {
+        return Err("mdat size=0 is not supported.".to_string());
+    }
+    let header = mp4_header_size(mdat)?;
+    let old_size = if header == 16 {
+        read_u64_be(mdat, 8)?
+    } else {
+        read_u32_be(mdat, 0)? as u64
+    };
+    let fake_len = fake_count as usize * FAKE_AVC_SAMPLE.len();
+    let new_size = old_size + fake_len as u64;
+    let mut out = Vec::with_capacity(mdat.len() + fake_len);
+    out.extend_from_slice(mdat);
+    for _ in 0..fake_count {
+        out.extend_from_slice(&FAKE_AVC_SAMPLE);
+    }
+    if header == 16 {
+        write_u64_be(&mut out, 8, new_size)?;
+    } else {
+        write_u32_be(&mut out, 0, new_size)?;
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -1304,7 +2079,14 @@ pub fn trim_video_segments(
     let list_path = temp_dir.join("segments.txt");
     let list_content = part_paths
         .iter()
-        .map(|path| format!("file '{}'", path.to_string_lossy().replace('\\', "/").replace('\'', "'\\''")))
+        .map(|path| {
+            format!(
+                "file '{}'",
+                path.to_string_lossy()
+                    .replace('\\', "/")
+                    .replace('\'', "'\\''")
+            )
+        })
         .collect::<Vec<_>>()
         .join("\n");
     fs::write(&list_path, list_content).map_err(|e| e.to_string())?;

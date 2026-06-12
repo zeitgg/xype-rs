@@ -57,7 +57,7 @@ export const jobDefinitions: JobDefinition[] = [
   { id: "compress", label: "Compress", shortLabel: "Zip", description: "Create a smaller upload-ready copy." },
   { id: "discord", label: "Discord 8 MB", shortLabel: "8 MB", description: "Compress a clip for Discord upload limits." },
   { id: "youtube", label: "YouTube 4K", shortLabel: "4K", description: "Create a 2160p upload copy for YouTube." },
-  { id: "tiktok", label: "TikTok FPS", shortLabel: "FPS", description: "Create an FPS-adjusted copy for TikTok." },
+  { id: "tiktok", label: "TikTok Quality", shortLabel: "TikTok", description: "Create a 1:1 quality patch for TikTok upload." },
 ];
 
 export const defaultMotionSettings: MotionSettings = {

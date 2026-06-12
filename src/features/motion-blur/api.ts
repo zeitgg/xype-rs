@@ -115,7 +115,7 @@ export function renderJob(
   if (mode === "youtube") {
     return invoke<ProcessResult>("upscale_youtube_4k_simple", { ffmpegPath, inputPath });
   }
-  return invoke<ProcessResult>("tiktok_fps_simple", { ffmpegPath, inputPath, fps: 120 });
+  return invoke<ProcessResult>("tiktok_quality_patch", { inputPath });
 }
 
 export function onRuntimeProgress(callback: (progress: number) => void) {
