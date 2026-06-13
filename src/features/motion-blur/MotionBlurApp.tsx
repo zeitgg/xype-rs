@@ -475,10 +475,11 @@ export function MotionBlurApp() {
     if (!canRender) return;
     const renderMode = mode;
     const renderJobLabel = activeJobLabel;
+    const safeSettings = normalizeMotionSettings(settings);
     const renderSettings =
-      settings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
-        ? { ...settings, encoder: "libx264" as const }
-        : settings;
+      safeSettings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
+        ? { ...safeSettings, encoder: "libx264" as const }
+        : safeSettings;
     setProcessing(true);
     setCurrentJobLabel(renderJobLabel);
     setRenderProgress(0);
@@ -523,10 +524,11 @@ export function MotionBlurApp() {
 
     const outputDir = parentDirectory(videoPath);
     const inputName = fileStem(videoPath);
+    const safeSettings = normalizeMotionSettings(settings);
     const renderSettings =
-      settings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
-        ? { ...settings, encoder: "libx264" as const }
-        : settings;
+      safeSettings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
+        ? { ...safeSettings, encoder: "libx264" as const }
+        : safeSettings;
 
     setProcessing(true);
     setRenderProgress(0);
@@ -589,10 +591,11 @@ export function MotionBlurApp() {
       return;
     }
 
+    const safeSettings = normalizeMotionSettings(settings);
     const renderSettings =
-      settings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
-        ? { ...settings, encoder: "libx264" as const }
-        : settings;
+      safeSettings.encoder === "h264_nvenc" && encoderSupport?.h264Nvenc === false
+        ? { ...safeSettings, encoder: "libx264" as const }
+        : safeSettings;
 
     setProcessing(true);
     setRenderProgress(0);
@@ -655,12 +658,13 @@ export function MotionBlurApp() {
   function saveUserPreset() {
     setUserPresets((presets) => {
       const name = `Preset ${presets.length + 1}`;
+      const presetSettings = normalizeMotionSettings(settings);
       const nextPresets = [
         ...presets,
         {
           id: crypto.randomUUID(),
           name,
-          settings,
+          settings: presetSettings,
         },
       ];
       localStorage.setItem(userPresetsStorageKey, JSON.stringify(nextPresets));
@@ -697,7 +701,7 @@ export function MotionBlurApp() {
         kind: "motion-preset",
         version: 1,
         name: "Motion preset",
-        settings,
+        settings: normalizeMotionSettings(settings),
       };
       await writeTextFile(path, JSON.stringify(preset, null, 2));
       setStatus("Exported .vro preset");
@@ -943,11 +947,133 @@ function parsePresetFile(contents: string): UserMotionPreset {
 }
 
 function normalizeMotionSettings(settings: Partial<MotionSettings>): MotionSettings {
-  return {
+  const next = {
     ...defaultMotionSettings,
     ...settings,
-    trimSegments: Array.isArray(settings.trimSegments) ? settings.trimSegments : [],
+    interpolationEnabled: booleanValue(settings.interpolationEnabled, defaultMotionSettings.interpolationEnabled),
+    interpolateFps: clampNumber(settings.interpolateFps, 60, 960, defaultMotionSettings.interpolateFps),
+    interpolationSpeed: enumValue(
+      settings.interpolationSpeed,
+      ["medium", "fast", "faster", "fastest"],
+      defaultMotionSettings.interpolationSpeed,
+    ),
+    interpolationTuning: enumValue(
+      settings.interpolationTuning,
+      ["film", "animation", "weak", "smooth"],
+      defaultMotionSettings.interpolationTuning,
+    ),
+    interpolationAlgorithm: enumNumber(
+      settings.interpolationAlgorithm,
+      [2, 13, 23],
+      defaultMotionSettings.interpolationAlgorithm,
+    ),
+    interpolationGpu: booleanValue(settings.interpolationGpu, defaultMotionSettings.interpolationGpu),
+    frameBlendingEnabled: booleanValue(
+      settings.frameBlendingEnabled,
+      defaultMotionSettings.frameBlendingEnabled,
+    ),
+    outputFps: clampNumber(settings.outputFps, 24, 240, defaultMotionSettings.outputFps),
+    blurIntensity: clampNumber(settings.blurIntensity, 0, 4, defaultMotionSettings.blurIntensity),
+    blendWeighting: enumValue(
+      settings.blendWeighting,
+      ["equal", "gaussian", "pyramid", "vegas"],
+      defaultMotionSettings.blendWeighting,
+    ),
+    flowblurEnabled: booleanValue(settings.flowblurEnabled, defaultMotionSettings.flowblurEnabled),
+    flowblurAmount: clampNumber(settings.flowblurAmount, 0, 200, defaultMotionSettings.flowblurAmount),
+    maskPreset: enumValue(
+      settings.maskPreset,
+      ["none", "valorant-minimal", "valorant-detailed", "custom"],
+      defaultMotionSettings.maskPreset,
+    ),
+    maskPath: typeof settings.maskPath === "string" ? settings.maskPath : defaultMotionSettings.maskPath,
+    encoder: enumValue(settings.encoder, ["libx264", "h264_nvenc"], defaultMotionSettings.encoder),
+    crf: clampNumber(settings.crf, 1, 35, defaultMotionSettings.crf),
+    timescale: clampNumber(settings.timescale, 0.25, 8, defaultMotionSettings.timescale),
+    compressMode: enumValue(
+      settings.compressMode,
+      ["balanced", "small", "high"],
+      defaultMotionSettings.compressMode,
+    ),
+    compressCrf: clampNumber(settings.compressCrf, 16, 32, defaultMotionSettings.compressCrf),
+    compressPreset: enumValue(
+      settings.compressPreset,
+      ["veryfast", "fast", "medium", "slow"],
+      defaultMotionSettings.compressPreset,
+    ),
+    compressMaxHeight: enumValue(
+      settings.compressMaxHeight,
+      ["source", "2160", "1440", "1080", "720", "480"],
+      defaultMotionSettings.compressMaxHeight,
+    ),
+    compressFps: enumValue(settings.compressFps, ["source", "60", "30"], defaultMotionSettings.compressFps),
+    compressAudioBitrate: enumNumber(
+      settings.compressAudioBitrate,
+      [96, 128, 160, 192, 256, 320],
+      defaultMotionSettings.compressAudioBitrate,
+    ),
+    compressFastStart: booleanValue(settings.compressFastStart, defaultMotionSettings.compressFastStart),
+    trimStart: clampNumber(settings.trimStart, 0, Number.MAX_SAFE_INTEGER, defaultMotionSettings.trimStart),
+    trimEnd: clampNumber(settings.trimEnd, 0.05, Number.MAX_SAFE_INTEGER, defaultMotionSettings.trimEnd),
+    trimSegments: normalizeTrimSegments(settings.trimSegments),
   };
+
+  if (next.interpolateFps < next.outputFps) next.interpolateFps = next.outputFps;
+  if (next.trimEnd <= next.trimStart) next.trimEnd = next.trimStart + 0.05;
+  if (next.maskPreset !== "custom") next.maskPath = "";
+
+  const hasMotionEffect =
+    (next.interpolationEnabled && next.interpolateFps > 0) ||
+    (next.frameBlendingEnabled && next.blurIntensity > 0) ||
+    (next.flowblurEnabled && next.flowblurAmount > 0);
+  if (!hasMotionEffect) {
+    next.frameBlendingEnabled = true;
+    next.blurIntensity = defaultMotionSettings.blurIntensity;
+  }
+
+  return next;
+}
+
+function clampNumber(value: unknown, min: number, max: number, fallback: number) {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function booleanValue(value: unknown, fallback: boolean) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true" || value.toLowerCase() === "yes") return true;
+    if (value.toLowerCase() === "false" || value.toLowerCase() === "no") return false;
+  }
+  return fallback;
+}
+
+function enumValue<TValue extends string>(value: unknown, options: readonly TValue[], fallback: TValue): TValue {
+  return typeof value === "string" && options.includes(value as TValue) ? (value as TValue) : fallback;
+}
+
+function enumNumber<TValue extends number>(value: unknown, options: readonly TValue[], fallback: TValue): TValue {
+  const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+  return options.includes(parsed as TValue) ? (parsed as TValue) : fallback;
+}
+
+function normalizeTrimSegments(value: unknown): TrimSegment[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((segment) => {
+      if (!segment || typeof segment !== "object") return null;
+      const start = clampNumber((segment as Partial<TrimSegment>).start, 0, Number.MAX_SAFE_INTEGER, 0);
+      const end = clampNumber((segment as Partial<TrimSegment>).end, 0, Number.MAX_SAFE_INTEGER, 0);
+      if (end <= start) return null;
+      return {
+        id: typeof (segment as Partial<TrimSegment>).id === "string" ? (segment as TrimSegment).id : crypto.randomUUID(),
+        start,
+        end,
+      };
+    })
+    .filter((segment): segment is TrimSegment => Boolean(segment))
+    .sort((a, b) => a.start - b.start);
 }
 
 function createEmptyVideoPaths(): Record<JobMode, string> {
