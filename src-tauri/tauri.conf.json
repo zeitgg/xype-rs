@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "xype",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "identifier": "gg.xype.app",
   "build": {
     "beforeDevCommand": "bun run dev",
@@ -42,12 +42,31 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "xype",
         "width": 800,
         "height": 600,
+        "visible": false,
         "devtools": false,
         "dragDropEnabled": true,
         "decorations": false
+      },
+      {
+        "label": "splashscreen",
+        "url": "splash.html",
+        "title": "xype",
+        "width": 420,
+        "height": 300,
+        "center": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false,
+        "alwaysOnTop": true,
+        "devtools": false,
+        "decorations": false,
+        "transparent": true,
+        "skipTaskbar": true
       }
     ],
     "security": {

@@ -11,51 +11,58 @@ type Props = {
 
 export function SubscriptionGate({ access, checking, onRetry, session }: Props) {
   const message = access?.error ?? "Log in with an active subscription to use xype.";
+  const locked = !checking;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#0f1012] p-6 text-white">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_15%,rgba(255,255,255,0.09),transparent_34%)]" />
-      <section className="relative w-full max-w-[420px] rounded-lg border border-white/[0.09] bg-[#17181b]/95 p-6 shadow-2xl">
-        <div className="flex items-center gap-3">
-          <img alt="xype" className="size-9" src="/logo.png" />
-          <div>
-            <p className="text-base font-semibold">xype</p>
-            <p className="text-xs text-white/38">Subscription required</p>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-background p-6 text-foreground">
+      <div className="xype-splash-sheen" />
+      <div className="xype-splash-grid" />
+
+      <section className="relative flex w-full max-w-[520px] flex-col items-center text-center">
+        <div className="xype-splash-mark">
+          <img alt="xype" className="size-16 rounded-xl" src="/logo.png" />
+          <span className="xype-splash-ring" />
+          <span className="xype-splash-ring xype-splash-ring-delayed" />
+        </div>
+
+        <div className="mt-7 space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">xype</p>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {checking ? "Starting workspace" : "Workspace locked"}
+          </h1>
+          <p className="mx-auto max-w-sm text-sm leading-6 text-muted-foreground">
+            {checking
+              ? "Checking your account and preparing the editor."
+              : session
+                ? `${session.email} needs an active subscription.`
+                : message}
+          </p>
+        </div>
+
+        <div className="mt-8 w-full max-w-72">
+          <div className="h-1 overflow-hidden rounded-full bg-muted">
+            <span className={checking ? "xype-splash-loader" : "block h-full w-full bg-destructive/70"} />
           </div>
-        </div>
-
-        <div className="mt-6 space-y-2">
-          <h1 className="text-xl font-semibold">Sign in to continue</h1>
-          <p className="text-sm leading-6 text-white/50">
-            xype is locked until your account and subscription are verified.
+          <p className="mt-3 text-xs text-muted-foreground">
+            {checking ? "Verifying access" : "Sign in on xype.gg, then retry here."}
           </p>
         </div>
 
-        <div className="mt-5 rounded-md border border-white/[0.075] bg-white/[0.025] p-3">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-white/28">Status</p>
-          <p className="mt-1 text-sm text-white/70">
-            {checking ? "Checking account..." : session ? session.email : "Not signed in"}
-          </p>
-          {!checking && <p className="mt-1 text-xs text-white/38">{message}</p>}
-        </div>
-
-        <div className="mt-5 grid grid-cols-2 gap-2">
-          <Button
-            onClick={() => {
-              void openUrl("https://xype.gg/login");
-            }}
-            type="button"
-          >
-            Log in
-          </Button>
-          <Button disabled={checking} onClick={onRetry} type="button" variant="outline">
-            {checking ? "Checking" : "Retry"}
-          </Button>
-        </div>
-
-        <p className="mt-4 text-center text-[11px] text-white/28">
-          After login, return here and xype will unlock automatically.
-        </p>
+        {locked && (
+          <div className="mt-7 grid w-full max-w-72 grid-cols-2 gap-2">
+            <Button
+              onClick={() => {
+                void openUrl("https://xype.gg/login");
+              }}
+              type="button"
+            >
+              Open login
+            </Button>
+            <Button onClick={onRetry} type="button" variant="outline">
+              Retry
+            </Button>
+          </div>
+        )}
       </section>
     </div>
   );

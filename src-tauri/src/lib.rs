@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tauri::Emitter;
+use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
 use url::Url;
 
@@ -261,6 +262,20 @@ pub fn run() {
                     if let Err(error) = handle_auth_deep_link(&handle, url.as_str()) {
                         eprintln!("deep link auth failed: {error}");
                     }
+                }
+            });
+
+            let splash_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(1800));
+
+                if let Some(main_window) = splash_handle.get_webview_window("main") {
+                    let _ = main_window.show();
+                    let _ = main_window.set_focus();
+                }
+
+                if let Some(splash_window) = splash_handle.get_webview_window("splashscreen") {
+                    let _ = splash_window.close();
                 }
             });
 

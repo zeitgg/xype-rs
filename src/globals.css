@@ -216,6 +216,99 @@
     box-shadow: 0 6px 14px rgb(0 0 0 / 0.35);
   }
 
+  .xype-splash-sheen {
+    position: absolute;
+    inset: -20%;
+    background:
+      radial-gradient(circle at 50% 35%, rgb(255 255 255 / 0.12), transparent 28%),
+      radial-gradient(circle at 30% 65%, rgb(255 255 255 / 0.06), transparent 24%);
+    animation: xype-splash-drift 7s ease-in-out infinite alternate;
+  }
+
+  .xype-splash-grid {
+    position: absolute;
+    inset: 0;
+    opacity: 0.16;
+    background-image:
+      linear-gradient(rgb(255 255 255 / 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 0.08) 1px, transparent 1px);
+    background-size: 52px 52px;
+    mask-image: radial-gradient(circle at center, black, transparent 68%);
+  }
+
+  .xype-splash-mark {
+    position: relative;
+    display: grid;
+    place-items: center;
+    animation: xype-splash-rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .xype-splash-ring {
+    position: absolute;
+    width: 6rem;
+    height: 6rem;
+    border: 1px solid rgb(255 255 255 / 0.16);
+    border-radius: 1.25rem;
+    animation: xype-splash-pulse 2.4s ease-out infinite;
+  }
+
+  .xype-splash-ring-delayed {
+    animation-delay: 900ms;
+  }
+
+  .xype-splash-loader {
+    display: block;
+    height: 100%;
+    width: 45%;
+    border-radius: inherit;
+    background: var(--primary);
+    animation: xype-splash-load 1.35s ease-in-out infinite;
+  }
+
+  @keyframes xype-splash-rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.96);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes xype-splash-pulse {
+    0% {
+      opacity: 0.9;
+      transform: scale(0.78);
+    }
+    80%,
+    100% {
+      opacity: 0;
+      transform: scale(1.45);
+    }
+  }
+
+  @keyframes xype-splash-load {
+    0% {
+      transform: translateX(-110%);
+    }
+    55% {
+      transform: translateX(70%);
+    }
+    100% {
+      transform: translateX(240%);
+    }
+  }
+
+  @keyframes xype-splash-drift {
+    from {
+      transform: translate3d(-1.5%, -1%, 0) scale(1);
+    }
+    to {
+      transform: translate3d(1.5%, 1%, 0) scale(1.04);
+    }
+  }
+
   .xype-range {
     appearance: none;
     background: transparent;

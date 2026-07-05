@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>xype</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family:
+          "DM Sans", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: transparent;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+
+      body {
+        display: grid;
+        place-items: center;
+        color: #f5f5f5;
+        user-select: none;
+      }
+
+      .shell {
+        position: relative;
+        display: flex;
+        width: 388px;
+        height: 268px;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        border: 1px solid rgb(255 255 255 / 0.09);
+        border-radius: 18px;
+        background:
+          radial-gradient(circle at 50% 25%, rgb(255 255 255 / 0.12), transparent 30%),
+          linear-gradient(180deg, #151515, #0b0b0c);
+        box-shadow:
+          0 24px 80px rgb(0 0 0 / 0.48),
+          inset 0 1px 0 rgb(255 255 255 / 0.06);
+      }
+
+      .grid {
+        position: absolute;
+        inset: 0;
+        opacity: 0.16;
+        background-image:
+          linear-gradient(rgb(255 255 255 / 0.08) 1px, transparent 1px),
+          linear-gradient(90deg, rgb(255 255 255 / 0.08) 1px, transparent 1px);
+        background-size: 42px 42px;
+        mask-image: radial-gradient(circle at center, black, transparent 72%);
+      }
+
+      .mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        animation: rise 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+      }
+
+      .logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+        z-index: 2;
+      }
+
+      .ring {
+        position: absolute;
+        width: 96px;
+        height: 96px;
+        border: 1px solid rgb(255 255 255 / 0.16);
+        border-radius: 20px;
+        animation: pulse 2.2s ease-out infinite;
+      }
+
+      .ring:nth-child(2) {
+        animation-delay: 780ms;
+      }
+
+      .brand {
+        position: relative;
+        margin: 24px 0 0;
+        font-size: 24px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .status {
+        position: relative;
+        margin-top: 6px;
+        color: rgb(255 255 255 / 0.48);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      .bar {
+        position: relative;
+        width: 180px;
+        height: 3px;
+        margin-top: 22px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgb(255 255 255 / 0.09);
+      }
+
+      .bar::after {
+        position: absolute;
+        inset: 0;
+        width: 45%;
+        border-radius: inherit;
+        background: #ffffff;
+        content: "";
+        animation: load 1.25s ease-in-out infinite;
+      }
+
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: translateY(8px) scale(0.96);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0) scale(1);
+        }
+      }
+
+      @keyframes pulse {
+        0% {
+          opacity: 0.75;
+          transform: scale(0.72);
+        }
+        85%,
+        100% {
+          opacity: 0;
+          transform: scale(1.5);
+        }
+      }
+
+      @keyframes load {
+        0% {
+          transform: translateX(-120%);
+        }
+        55% {
+          transform: translateX(85%);
+        }
+        100% {
+          transform: translateX(250%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <div class="grid"></div>
+      <div class="mark">
+        <img class="logo" src="/logo.png" alt="xype" />
+        <span class="ring"></span>
+        <span class="ring"></span>
+      </div>
+      <h1 class="brand">xype</h1>
+      <p class="status">Preparing workspace</p>
+      <div class="bar"></div>
+    </main>
+  </body>
+</html>
