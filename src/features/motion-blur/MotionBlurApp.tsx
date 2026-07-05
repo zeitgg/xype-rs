@@ -51,6 +51,7 @@ import { OnboardingTour } from "./OnboardingTour";
 import { SourcePanel } from "./SourcePanel";
 import { StatusPanel } from "./StatusPanel";
 import { SubscriptionGate } from "./SubscriptionGate";
+import { UpdateAvailableToast } from "./UpdateAvailableToast";
 import { WindowControls } from "./WindowControls";
 import {
   blurPresets,
@@ -108,8 +109,14 @@ export function MotionBlurApp() {
     () => localStorage.getItem("xype.onboardingComplete") !== "1",
   );
   const [updateState, setUpdateState] = useState<UpdateState>(defaultUpdateState);
+  const [dismissedUpdateVersion, setDismissedUpdateVersion] = useState<string | null>(null);
   const videoPath = videoPaths[mode];
   const outputPath = outputPaths[outputPaths.length - 1] ?? null;
+  const showUpdateToast =
+    updateState.status === "downloading" ||
+    (updateState.status === "available" &&
+      Boolean(updateState.updateVersion) &&
+      updateState.updateVersion !== dismissedUpdateVersion);
 
   useEffect(() => {
     modeRef.current = mode;
@@ -896,6 +903,18 @@ export function MotionBlurApp() {
         progress={renderProgress}
         status={status}
       />
+      {showUpdateToast && (
+        <UpdateAvailableToast
+          onDismiss={() => setDismissedUpdateVersion(updateState.updateVersion)}
+          onInstall={() => {
+            void installAvailableUpdate();
+          }}
+          onOpenSettings={() => {
+            setSettingsOpen(true);
+          }}
+          updateState={updateState}
+        />
+      )}
       {onboardingOpen && (
         <OnboardingTour
           ffmpegProgress={ffmpegProgress}
