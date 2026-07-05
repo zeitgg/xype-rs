@@ -436,6 +436,15 @@ export function MotionBlurApp() {
     [ffmpegValid, mode, processing, runtimeState, videoPath],
   );
   const activeJobLabel = jobDefinitions.find((job) => job.id === mode)?.label ?? "Video";
+  const renderBlocker = useMemo(() => {
+    if (processing) return "Export in progress";
+    if (!videoPath) return "Open a video to start";
+    if (mode !== "tiktok" && ffmpegState === "checking") return "Checking video tools";
+    if (mode !== "tiktok" && ffmpegValid !== true) return "Install video tools in Settings";
+    if (mode === "motion" && runtimeState === "checking") return "Checking blur engine";
+    if (mode === "motion" && runtimeState !== "ready") return "Install blur engine in Settings";
+    return activeJobLabel;
+  }, [activeJobLabel, ffmpegState, ffmpegValid, mode, processing, runtimeState, videoPath]);
 
   async function installRuntime() {
     setRuntimeState("installing");
@@ -678,7 +687,7 @@ export function MotionBlurApp() {
       const path = await pickPresetFile();
       if (!path) return;
 
-      const imported = parsePresetFile(await readTextFile(path));
+      const imported = parsePresetFile(await readTextFile(path), presetNameFromPath(path));
       setSettings(imported.settings);
       setUserPresets((presets) => {
         const nextPresets = [...presets, imported];
@@ -689,6 +698,16 @@ export function MotionBlurApp() {
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "Could not import preset.");
     }
+  }
+
+  function deleteUserPreset(id: string) {
+    setUserPresets((presets) => {
+      const preset = presets.find((item) => item.id === id);
+      const nextPresets = presets.filter((item) => item.id !== id);
+      localStorage.setItem(userPresetsStorageKey, JSON.stringify(nextPresets));
+      if (preset) setStatus(`Deleted preset: ${preset.name}`);
+      return nextPresets;
+    });
   }
 
   async function exportPreset() {
@@ -722,22 +741,22 @@ export function MotionBlurApp() {
   }
 
   return (
-    <main className="dark flex h-screen flex-col overflow-hidden bg-[#111214] text-white antialiased">
-      <header className="flex h-11 shrink-0 items-stretch justify-between border-b border-white/[0.075] bg-[#18191c]">
+    <main className="dark flex h-screen flex-col overflow-hidden bg-background text-foreground antialiased">
+      <header className="z-10 flex h-[52px] shrink-0 items-stretch justify-between border-b border-border bg-background">
         <div
-          className="flex min-w-0 flex-1 items-center gap-2 px-3"
+          className="flex min-w-0 flex-1 items-center gap-2 px-4"
           data-tauri-drag-region
           onDoubleClick={() => void appWindow.toggleMaximize()}
         >
-          <img alt="xype" className="h-5 w-5" src="/logo.png" />
+          <img alt="xype" className="h-5 w-5 rounded-md" src="/logo.png" />
           <div className="h-full min-w-0" data-tour="modules">
             <JobSwitcher mode={mode} onChange={setMode} />
           </div>
         </div>
-        <div className="flex items-center gap-1 pl-2 text-[11px] text-white/45">
+        <div className="flex items-center gap-1 pl-2 pr-2 text-[11px] text-muted-foreground">
           <button
             aria-label="Reset"
-            className="rounded px-2 py-1 text-[11px] text-white/45 hover:bg-white/[0.07] hover:text-white"
+            className="h-7 rounded-md px-2.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             onClick={() => {
               setVideoForMode(mode, "");
               setFinishedOutputs([]);
@@ -749,7 +768,7 @@ export function MotionBlurApp() {
           </button>
           <button
             aria-label="Settings"
-            className="flex size-8 items-center justify-center rounded text-white/45 hover:bg-white/[0.07] hover:text-white"
+            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/60 hover:text-foreground"
             data-tour="settings"
             onClick={() => setSettingsOpen(true)}
             onMouseDown={(event) => event.stopPropagation()}
@@ -762,9 +781,9 @@ export function MotionBlurApp() {
         </div>
       </header>
 
-      <section className="flex min-h-0 flex-1 flex-col">
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(360px,28vw,430px)]">
-          <div className="h-full min-h-0" data-tour="source">
+      <section className="flex min-h-0 flex-1 flex-col gap-2 bg-background p-2">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(336px,27vw,400px)] gap-2">
+          <div className="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs" data-tour="source">
             <SourcePanel
               inputFps={inputFps}
               onChangeSettings={setSettings}
@@ -780,7 +799,7 @@ export function MotionBlurApp() {
               mode={mode}
             />
           </div>
-          <aside className="min-h-0 border-l border-white/[0.075] bg-[#17181b]" data-tour="properties">
+          <aside className="min-h-0 overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs" data-tour="properties">
             <MotionSettingsPanel
               encoderSupport={encoderSupport}
               mode={mode}
@@ -799,6 +818,7 @@ export function MotionBlurApp() {
                 void pickMask();
               }}
               onPresetChange={choosePreset}
+              onDeletePreset={deleteUserPreset}
               onRemoveMotionFile={removeMotionQueueFile}
               onRunMotionFiles={(files) => {
                 void runMotionFileQueue(files);
@@ -814,10 +834,11 @@ export function MotionBlurApp() {
           </aside>
         </div>
 
-        <div className="shrink-0" data-tour="export">
+        <div className="shrink-0 overflow-hidden rounded-lg border border-border/70 bg-card shadow-xs" data-tour="export">
           <StatusPanel
             actionLabel={mode === "trim" ? "Export Segment" : "Create Copy"}
             canRender={canRender}
+            disabledReason={renderBlocker}
             modeLabel={activeJobLabel}
             onRender={render}
             outputPath={outputPath}
@@ -930,7 +951,12 @@ function loadUserPresets(): UserMotionPreset[] {
   }
 }
 
-function parsePresetFile(contents: string): UserMotionPreset {
+function presetNameFromPath(path: string) {
+  const fileName = path.split(/[\\/]/).pop()?.trim() ?? "";
+  return fileName.replace(/\.vro$/i, "").trim() || "Imported preset";
+}
+
+function parsePresetFile(contents: string, fallbackName?: string): UserMotionPreset {
   const parsed = JSON.parse(contents) as {
     name?: unknown;
     settings?: unknown;
@@ -941,7 +967,9 @@ function parsePresetFile(contents: string): UserMotionPreset {
 
   return {
     id: crypto.randomUUID(),
-    name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "Imported preset",
+    name:
+      fallbackName?.trim() ||
+      (typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : "Imported preset"),
     settings: normalizeMotionSettings(parsed.settings as Partial<MotionSettings>),
   };
 }

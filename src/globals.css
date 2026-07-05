@@ -1,13 +1,14 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@fontsource-variable/dm-sans";
 @import "@fontsource-variable/inter";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
     --font-heading: var(--font-sans);
-    --font-sans: 'Inter Variable', sans-serif;
+    --font-sans: 'DM Sans', 'Inter Variable', sans-serif;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -84,37 +85,51 @@
 }
 
 .dark {
-    --background: oklch(0.13 0.004 260);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.17 0.004 260);
-    --card-foreground: oklch(0.985 0 0);
-    --popover: oklch(0.17 0.004 260);
-    --popover-foreground: oklch(0.985 0 0);
-    --primary: oklch(0.94 0.003 260);
-    --primary-foreground: oklch(0.13 0.004 260);
-    --secondary: oklch(0.23 0.004 260);
-    --secondary-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.22 0.004 260);
-    --muted-foreground: oklch(0.68 0.004 260);
-    --accent: oklch(0.24 0.004 260);
-    --accent-foreground: oklch(0.985 0 0);
+    --background: #0a0a0a;
+    --foreground: #f5f5f5;
+    --card: #171717;
+    --card-foreground: #f5f5f5;
+    --popover: #171717;
+    --popover-foreground: #f5f5f5;
+    --primary: #f5f5f5;
+    --primary-foreground: #0a0a0a;
+    --secondary: rgb(255 255 255 / 4%);
+    --secondary-foreground: #f5f5f5;
+    --muted: rgb(255 255 255 / 4%);
+    --muted-foreground: #8e8e93;
+    --accent: rgb(255 255 255 / 8%);
+    --accent-foreground: #f5f5f5;
     --destructive: oklch(0.704 0.191 22.216);
-    --border: oklch(1 0 0 / 8%);
-    --input: oklch(1 0 0 / 10%);
-    --ring: oklch(0.75 0.004 260);
+    --border: rgb(255 255 255 / 6%);
+    --input: rgb(255 255 255 / 8%);
+    --ring: #8e8e93;
     --chart-1: oklch(0.871 0.006 286.286);
     --chart-2: oklch(0.552 0.016 285.938);
     --chart-3: oklch(0.442 0.017 285.786);
     --chart-4: oklch(0.37 0.013 285.805);
     --chart-5: oklch(0.274 0.006 286.033);
-    --sidebar: oklch(0.115 0.004 260);
-    --sidebar-foreground: oklch(0.985 0 0);
-    --sidebar-primary: oklch(0.94 0.003 260);
+    --sidebar: #0e0e0e;
+    --sidebar-foreground: #f5f5f5;
+    --sidebar-primary: #f5f5f5;
     --sidebar-primary-foreground: oklch(0.987 0.026 102.212);
-    --sidebar-accent: oklch(0.18 0.004 260);
-    --sidebar-accent-foreground: oklch(0.985 0 0);
-    --sidebar-border: oklch(1 0 0 / 8%);
-    --sidebar-ring: oklch(0.75 0.004 260);
+    --sidebar-accent: rgb(255 255 255 / 4%);
+    --sidebar-accent-foreground: #f5f5f5;
+    --sidebar-border: rgb(255 255 255 / 6%);
+    --sidebar-ring: #8e8e93;
+    --xype-screen: #0a0a0a;
+    --xype-sheet: rgb(14 14 14 / 98%);
+    --xype-card: #171717;
+    --xype-card-alt: #1c1c1c;
+    --xype-card-translucent: rgb(17 17 17 / 94%);
+    --xype-glass-surface: rgb(23 23 23 / 78%);
+    --xype-glass-tint: rgb(23 23 23 / 24%);
+    --xype-subtle: rgb(255 255 255 / 4%);
+    --xype-subtle-strong: rgb(255 255 255 / 8%);
+    --xype-border: rgb(255 255 255 / 6%);
+    --xype-border-subtle: rgb(255 255 255 / 4%);
+    --xype-header: rgb(10 10 10 / 97%);
+    --xype-muted: #8e8e93;
+    --xype-tertiary: #636366;
 }
 
 @layer base {
@@ -125,7 +140,7 @@
     @apply bg-background text-foreground;
     margin: 0;
     overflow: hidden;
-    background: #111214;
+    background: #0a0a0a;
     }
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
@@ -170,6 +185,35 @@
 @layer components {
   .xype-scrollbar {
     scrollbar-gutter: stable;
+  }
+
+  .xype-glass {
+    border: 1px solid var(--xype-border);
+    background: var(--xype-glass-surface);
+    box-shadow:
+      0 14px 28px rgb(0 0 0 / 0.22),
+      inset 0 1px 0 rgb(255 255 255 / 0.045);
+    backdrop-filter: blur(22px) saturate(1.35);
+  }
+
+  .xype-card {
+    border: 1px solid var(--xype-border);
+    background:
+      linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 42%),
+      var(--xype-card-translucent);
+    box-shadow:
+      0 10px 24px rgb(0 0 0 / 0.16),
+      inset 0 1px 0 rgb(255 255 255 / 0.035);
+  }
+
+  .xype-card-flat {
+    border: 1px solid var(--xype-border);
+    background: var(--xype-card-translucent);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.03);
+  }
+
+  .xype-control-shadow {
+    box-shadow: 0 6px 14px rgb(0 0 0 / 0.35);
   }
 
   .xype-range {

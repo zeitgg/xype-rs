@@ -47,6 +47,20 @@ type Props = {
 };
 
 type SettingsTab = "tools" | "account" | "updates";
+const settingsCopy: Record<SettingsTab, { description: string; title: string }> = {
+  tools: {
+    description: "Install and verify the render tools xype depends on.",
+    title: "Tools",
+  },
+  account: {
+    description: "Subscription and sign-in state for this device.",
+    title: "Account",
+  },
+  updates: {
+    description: "Check signed releases and install app updates.",
+    title: "Updates",
+  },
+};
 
 export function AppSettingsDialog({
   access,
@@ -76,74 +90,74 @@ export function AppSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="!h-[calc(100vh-3rem)] !w-[calc(100vw-3rem)] !max-w-[calc(100vw-3rem)] grid-rows-[auto_minmax(0,1fr)] border border-white/[0.075] bg-[#17181b] p-0 text-white sm:!max-w-[calc(100vw-3rem)]">
+      <DialogContent className="!h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] grid-rows-[auto_minmax(0,1fr)] overflow-hidden rounded-[22px] border border-[var(--xype-border)] bg-[var(--xype-sheet)] p-0 text-white shadow-[0_20px_54px_rgba(0,0,0,0.42)] sm:!max-w-[calc(100vw-2rem)]">
         <DialogHeader>
-          <div className="border-b border-white/[0.075] px-5 py-4">
-            <DialogTitle>Settings</DialogTitle>
-            <DialogDescription>Manage the tools xype uses for rendering.</DialogDescription>
+          <div className="border-b border-[var(--xype-border-subtle)] px-4 py-3">
+            <DialogTitle className="text-base font-bold">Settings</DialogTitle>
+            <DialogDescription className="text-white/45">{settingsCopy[tab].description}</DialogDescription>
           </div>
         </DialogHeader>
 
-        <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)]">
-          <nav className="space-y-1 border-r border-white/[0.075] bg-black/10 p-3">
-            <TabButton active={tab === "tools"} onClick={() => setTab("tools")}>
+        <div className="grid min-h-0 grid-cols-[220px_minmax(0,1fr)] bg-[var(--xype-sheet)]">
+          <nav className="space-y-1.5 border-r border-[var(--xype-border-subtle)] p-3">
+            <TabButton
+              active={tab === "tools"}
+              detail={toolsReady(ffmpegValid, runtimeState) ? "Installed" : "Needs setup"}
+              onClick={() => setTab("tools")}
+            >
               Tools
             </TabButton>
-            <TabButton active={tab === "account"} onClick={() => setTab("account")}>
+            <TabButton
+              active={tab === "account"}
+              detail={access?.access ? "Active" : accountChecking ? "Checking" : "Locked"}
+              onClick={() => setTab("account")}
+            >
               Account
             </TabButton>
-            <TabButton active={tab === "updates"} onClick={() => setTab("updates")}>
+            <TabButton
+              active={tab === "updates"}
+              detail={statusText(updateState.status)}
+              onClick={() => setTab("updates")}
+            >
               Updates
             </TabButton>
           </nav>
 
-          <div className="xype-scrollbar min-h-0 space-y-3 overflow-auto p-5">
+          <div className="xype-scrollbar min-h-0 space-y-3 overflow-auto p-3">
+            <SettingsPageHeader tab={tab} />
             {tab === "tools" ? (
-              <>
-                <section className="space-y-3 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Video tools</p>
-                      <p className="text-xs text-white/40">
-                        {ffmpegValid ? "Installed automatically." : "Required for every module."}
-                      </p>
-                    </div>
-                    <Button
-                      disabled={ffmpegState === "installing"}
-                      onClick={onInstallFfmpeg}
-                      type="button"
-                    >
-                      {ffmpegValid ? "Reinstall" : "Install"}
-                    </Button>
-                  </div>
-                  {ffmpegState === "installing" && <Progress value={ffmpegProgress} />}
-                </section>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <ToolStatusCard
+                    actionLabel={ffmpegValid ? "Reinstall" : "Install"}
+                    description={ffmpegValid ? "Ready for exports." : "Required for most exports."}
+                    disabled={ffmpegState === "installing"}
+                    progress={ffmpegProgress}
+                    state={ffmpegState}
+                    status={ffmpegValid ? "Ready" : toolStateLabel(ffmpegState)}
+                    title="Video tools"
+                    onAction={onInstallFfmpeg}
+                  />
+                  <ToolStatusCard
+                    actionLabel={runtimeState === "ready" ? "Reinstall" : "Install"}
+                    description="Required for Motion Blur."
+                    disabled={runtimeState === "installing"}
+                    progress={installProgress}
+                    state={runtimeState}
+                    status={toolStateLabel(runtimeState)}
+                    title="Blur engine"
+                    onAction={onInstallRuntime}
+                  />
+                </div>
 
-                <section className="space-y-3 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
-                  <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-medium">Blur engine</p>
-                      <p className="text-xs text-white/40">Needed only for Motion Blur.</p>
-                    </div>
-                    <Button
-                      disabled={runtimeState === "installing"}
-                      onClick={onInstallRuntime}
-                      type="button"
-                    >
-                      {runtimeState === "ready" ? "Reinstall" : "Install"}
-                    </Button>
-                  </div>
-                  {runtimeState === "installing" && <Progress value={installProgress} />}
-                </section>
-
-                <section className="space-y-2 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
-                  <p className="text-sm font-medium">Custom FFmpeg</p>
-                  <p className="text-xs text-white/40">
+                <section className="space-y-2 rounded-[18px] bg-[var(--xype-card)] p-3">
+                  <p className="text-sm font-bold">Custom FFmpeg</p>
+                  <p className="text-xs text-white/45">
                     Optional. Leave this alone unless you need your own build.
                   </p>
                   <div className="flex gap-2">
                     <Input
-                      className="border-white/[0.075] bg-white/[0.045] text-white placeholder:text-white/25"
+                      className="border-[var(--xype-border)] bg-[var(--xype-subtle)] text-white placeholder:text-white/25"
                       onChange={(event) => onSetFfmpegPath(event.currentTarget.value)}
                       placeholder="ffmpeg.exe path"
                       spellCheck={false}
@@ -155,16 +169,16 @@ export function AppSettingsDialog({
                   </div>
                 </section>
 
-                <section className="flex items-center justify-between gap-3 rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
+                <section className="flex items-center justify-between gap-3 rounded-[18px] bg-[var(--xype-card)] p-3">
                   <div>
-                    <p className="text-sm font-medium">Tutorial</p>
-                    <p className="text-xs text-white/40">Replay the quick app walkthrough.</p>
+                    <p className="text-sm font-bold">Tutorial</p>
+                    <p className="text-xs text-white/45">Replay the quick app walkthrough.</p>
                   </div>
                   <Button onClick={onShowOnboarding} type="button" variant="outline">
                     Show tutorial
                   </Button>
                 </section>
-              </>
+              </div>
             ) : tab === "account" ? (
               <AccountPanel
                 access={access}
@@ -194,17 +208,85 @@ type UpdatesPanelProps = {
   updateState: UpdateState;
 };
 
+function SettingsPageHeader({ tab }: { tab: SettingsTab }) {
+  const copy = settingsCopy[tab];
+
+  return (
+    <section className="rounded-[18px] bg-[var(--xype-card)] p-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.11em] text-white/38">Settings</p>
+      <h3 className="mt-1 text-base font-bold text-white">{copy.title}</h3>
+      <p className="mt-1 text-xs leading-5 text-white/48">{copy.description}</p>
+    </section>
+  );
+}
+
+function ToolStatusCard({
+  actionLabel,
+  description,
+  disabled,
+  onAction,
+  progress,
+  state,
+  status,
+  title,
+}: {
+  actionLabel: string;
+  description: string;
+  disabled: boolean;
+  onAction: () => void;
+  progress: number;
+  state: ToolState;
+  status: string;
+  title: string;
+}) {
+  const busy = state === "checking" || state === "installing";
+
+  return (
+    <section className="flex min-h-36 flex-col justify-between rounded-[18px] bg-[var(--xype-card)] p-3">
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-white">{title}</p>
+            <p className="mt-1 text-xs leading-5 text-white/45">{description}</p>
+          </div>
+          <StateBadge state={state}>{status}</StateBadge>
+        </div>
+        {busy && <Progress className="mt-4" value={state === "checking" ? 35 : progress} />}
+      </div>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <p className="truncate text-xs text-white/38">{busy ? "Working..." : status}</p>
+        <Button disabled={disabled || state === "checking"} onClick={onAction} type="button">
+          {state === "installing" ? "Installing" : actionLabel}
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function StateBadge({ children, state }: { children: string; state: ToolState }) {
+  const tone =
+    state === "ready"
+      ? "bg-emerald-400/[0.12] text-emerald-200"
+      : state === "error"
+        ? "bg-red-400/[0.12] text-red-200"
+        : state === "checking" || state === "installing"
+          ? "bg-sky-400/[0.12] text-sky-200"
+          : "bg-[var(--xype-subtle-strong)] text-white/60";
+
+  return <span className={`${tone} shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold`}>{children}</span>;
+}
+
 function UpdatesPanel({ onCheckForUpdates, onInstallUpdate, updateState }: UpdatesPanelProps) {
   const busy = updateState.status === "checking" || updateState.status === "downloading";
   const canInstall = updateState.status === "available" && updateState.updateVersion;
 
   return (
     <div className="space-y-3">
-      <section className="rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
+      <section className="rounded-[18px] bg-[var(--xype-card)] p-3">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium">App updates</p>
-            <p className="mt-1 text-xs text-white/40">
+            <p className="text-sm font-bold">App updates</p>
+            <p className="mt-1 text-xs text-white/45">
               xype checks signed GitHub Releases and installs updates in place.
             </p>
           </div>
@@ -220,14 +302,14 @@ function UpdatesPanel({ onCheckForUpdates, onInstallUpdate, updateState }: Updat
         </div>
       </section>
 
-      <section className={`${statusShell(updateState.status)} rounded-md border p-4`}>
+      <section className={`${statusShell(updateState.status)} rounded-[18px] border p-3`}>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className={`${statusDot(updateState.status)} size-2 rounded-full`} />
               <p className="text-sm font-medium">{statusLabel(updateState)}</p>
             </div>
-            <p className="mt-1 text-xs text-white/48">{updateState.message}</p>
+            <p className="mt-1 text-xs text-white/50">{updateState.message}</p>
           </div>
           <StatusBadge status={updateState.status} />
         </div>
@@ -262,26 +344,26 @@ function AccountPanel({ access, checking, onLogin, onLogout, onRefresh, session 
 
   return (
     <div className="space-y-3">
-      <section className="rounded-md border border-white/[0.075] bg-white/[0.025] p-4">
+      <section className="rounded-[18px] bg-[var(--xype-card)] p-3">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-sm font-medium">Account</p>
-            <p className="mt-1 text-xs text-white/40">Sign in to verify your xype subscription.</p>
+            <p className="text-sm font-bold">Account</p>
+            <p className="mt-1 text-xs text-white/45">Sign in to verify your xype subscription.</p>
           </div>
           <span
             className={[
-              "rounded px-2 py-1 text-[11px]",
-              active ? "bg-emerald-400/[0.12] text-emerald-200" : "bg-white/[0.07] text-white/55",
+              "rounded-full px-2.5 py-1 text-[11px] font-bold",
+              active ? "bg-emerald-400/[0.12] text-emerald-200" : "bg-[var(--xype-subtle-strong)] text-white/60",
             ].join(" ")}
           >
             {active ? "Active" : checking ? "Checking" : "Locked"}
           </span>
         </div>
 
-        <div className="mt-4 rounded border border-white/[0.06] bg-black/15 p-3">
-          <p className="text-[10px] uppercase tracking-[0.12em] text-white/28">Signed in as</p>
-          <p className="mt-1 truncate text-sm font-medium text-white/70">{session?.email ?? "Not signed in"}</p>
-          <p className="mt-1 text-xs text-white/35">
+        <div className="mt-4 rounded-[18px] border border-[var(--xype-border-subtle)] bg-[var(--xype-subtle)] p-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/35">Signed in as</p>
+          <p className="mt-1 truncate text-sm font-bold text-white/78">{session?.email ?? "Not signed in"}</p>
+          <p className="mt-1 text-xs text-white/42">
             {active
               ? "Your subscription is active."
               : access?.error ?? "Log in, then refresh to unlock xype."}
@@ -314,9 +396,9 @@ type UpdateMetricProps = {
 
 function UpdateMetric({ label, value }: UpdateMetricProps) {
   return (
-    <div className="rounded border border-white/[0.06] bg-black/15 p-3">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-white/28">{label}</p>
-      <p className="mt-1 truncate text-xs font-medium text-white/70">{value}</p>
+    <div className="rounded-[18px] border border-[var(--xype-border-subtle)] bg-[var(--xype-subtle)] p-3">
+      <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-white/35">{label}</p>
+      <p className="mt-1 truncate text-xs font-bold text-white/75">{value}</p>
     </div>
   );
 }
@@ -335,7 +417,7 @@ function statusShell(status: UpdateState["status"]) {
   if (status === "latest") return "border-white/[0.09] bg-white/[0.035]";
   if (status === "checking" || status === "downloading") return "border-sky-300/20 bg-sky-300/[0.045]";
   if (status === "error") return "border-red-400/25 bg-red-400/[0.055]";
-  return "border-white/[0.075] bg-white/[0.025]";
+  return "border-[var(--xype-border)] bg-[var(--xype-card)]";
 }
 
 function statusDot(status: UpdateState["status"]) {
@@ -348,7 +430,7 @@ function statusDot(status: UpdateState["status"]) {
 
 function StatusBadge({ status }: { status: UpdateState["status"] }) {
   return (
-    <span className="shrink-0 rounded bg-white/[0.07] px-2 py-1 text-[11px] text-white/55">
+    <span className="shrink-0 rounded-full bg-[var(--xype-subtle-strong)] px-2.5 py-1 text-[11px] font-bold text-white/60">
       {statusText(status)}
     </span>
   );
@@ -371,20 +453,38 @@ function formatVersion(version: string | null) {
 type TabButtonProps = {
   active: boolean;
   children: string;
+  detail: string;
   onClick: () => void;
 };
 
-function TabButton({ active, children, onClick }: TabButtonProps) {
+function TabButton({ active, children, detail, onClick }: TabButtonProps) {
   return (
     <button
       className={[
-        "w-full rounded px-3 py-2 text-left text-xs font-medium transition-colors",
-        active ? "bg-white/[0.08] text-white" : "text-white/45 hover:bg-white/[0.045] hover:text-white/75",
+        "w-full rounded-lg border px-3 py-2.5 text-left transition-colors",
+        active
+          ? "border-border bg-card text-foreground shadow-xs"
+          : "border-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
       ].join(" ")}
       onClick={onClick}
       type="button"
     >
-      {children}
+      <span className="block text-xs font-semibold">{children}</span>
+      <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
+        {detail}
+      </span>
     </button>
   );
+}
+
+function toolStateLabel(state: ToolState) {
+  if (state === "ready") return "Ready";
+  if (state === "checking") return "Checking";
+  if (state === "installing") return "Installing";
+  if (state === "error") return "Needs attention";
+  return "Not installed";
+}
+
+function toolsReady(ffmpegValid: boolean | null, runtimeState: RuntimeState) {
+  return ffmpegValid === true && runtimeState === "ready";
 }

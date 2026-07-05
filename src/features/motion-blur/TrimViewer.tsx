@@ -243,8 +243,8 @@ export function TrimViewer({
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-[#0a0b0d]">
-      <div className="relative min-h-0 flex-1 bg-black">
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--xype-card)] p-3">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-[18px] bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
         <video
           className="h-full w-full object-contain"
           onClick={() => void togglePlayback()}
@@ -256,11 +256,11 @@ export function TrimViewer({
           ref={videoRef}
           src={sourceUrl}
         />
-        <div className="absolute left-3 top-3 rounded bg-black/70 px-2.5 py-1.5 font-mono text-xs text-white/80 shadow-sm">
+        <div className="absolute left-3 top-3 rounded-full bg-black/70 px-2.5 py-1.5 font-mono text-xs text-white/80 shadow-sm backdrop-blur">
           {formatTime(currentTime)}
         </div>
         <button
-          className="absolute right-3 top-3 rounded bg-black/70 px-2.5 py-1.5 text-[11px] font-medium text-white/75 shadow-sm hover:bg-black hover:text-white"
+          className="absolute right-3 top-3 rounded-full bg-black/70 px-2.5 py-1.5 text-[11px] font-bold text-white/75 shadow-sm backdrop-blur hover:bg-black hover:text-white"
           onClick={onPickVideo}
           type="button"
         >
@@ -268,7 +268,7 @@ export function TrimViewer({
         </button>
       </div>
 
-      <div className="shrink-0 border-t border-white/[0.075] bg-[#141518] p-3">
+      <div className="mt-3 shrink-0 rounded-[18px] bg-[var(--xype-card-alt)] p-3">
         <div className="mb-3 grid grid-cols-[auto_1fr_auto] items-center gap-3">
           <div className="flex items-center gap-1.5">
             <Button aria-label={playing ? "Pause" : "Play"} className="h-8 w-9 px-0" onClick={() => void togglePlayback()} size="sm" type="button">
@@ -419,14 +419,14 @@ function Timeline({
   const rangeEnd = pendingStart == null ? trimEnd : Math.max(pendingStart, currentTime);
 
   return (
-    <div className="relative h-20 rounded border border-white/[0.075] bg-[#0b0c0f] px-3">
+    <div className="relative h-[72px] rounded-[16px] bg-[var(--xype-subtle)] px-3">
       <div className="absolute inset-x-3 top-3 flex justify-between">
         {ticks.map((tick) => (
           <span key={tick} className="h-2 w-px bg-white/[0.12]" />
         ))}
       </div>
       <div
-        className="absolute inset-x-3 top-8 h-5 cursor-crosshair rounded bg-white/[0.07]"
+        className="absolute inset-x-3 top-8 h-5 cursor-crosshair rounded-full bg-white/[0.07]"
         onPointerDown={(event) => {
           onSeek(timeFromPointer(event));
           beginDrag(event, "playhead");
@@ -440,7 +440,7 @@ function Timeline({
             <button
               aria-label={`Select segment ${formatTime(segment.start)} to ${formatTime(segment.end)}`}
               className={[
-                "absolute top-0 h-full rounded border transition",
+                "absolute top-0 h-full rounded-full border transition",
                 selectedSegmentId === segment.id
                   ? "border-white bg-white"
                   : "border-white/15 bg-white/65 hover:bg-white/85",
@@ -458,7 +458,7 @@ function Timeline({
           ))
         ) : (
           <div
-            className="absolute top-0 h-full rounded bg-white/80"
+            className="absolute top-0 h-full rounded-full bg-white/80"
             style={{
               left: `${percent(trimStart, duration)}%`,
               width: `${Math.max(0, percent(trimEnd, duration) - percent(trimStart, duration))}%`,
@@ -466,7 +466,7 @@ function Timeline({
           />
         )}
         <div
-          className="absolute top-[-4px] h-[28px] rounded border border-white/70 bg-white/18"
+          className="absolute top-[-4px] h-[28px] rounded-full border border-white/70 bg-white/18"
           style={{
             left: `${percent(rangeStart, duration)}%`,
             width: `${Math.max(0, percent(rangeEnd, duration) - percent(rangeStart, duration))}%`,
@@ -474,7 +474,7 @@ function Timeline({
         />
         <button
           aria-label="Drag trim in"
-          className="absolute top-[-8px] z-20 h-9 w-3 -translate-x-1/2 rounded-sm border border-white/70 bg-[#17181b] shadow"
+          className="absolute top-[-8px] z-20 h-9 w-3 -translate-x-1/2 rounded-full border border-white/70 bg-[var(--xype-card)] shadow"
           disabled={!duration}
           onPointerDown={(event) => beginDrag(event, "start")}
           style={{ left: `${percent(trimStart, duration)}%` }}
@@ -482,7 +482,7 @@ function Timeline({
         />
         <button
           aria-label="Drag trim out"
-          className="absolute top-[-8px] z-20 h-9 w-3 -translate-x-1/2 rounded-sm border border-white/70 bg-[#17181b] shadow"
+          className="absolute top-[-8px] z-20 h-9 w-3 -translate-x-1/2 rounded-full border border-white/70 bg-[var(--xype-card)] shadow"
           disabled={!duration || trimEnd <= minGap}
           onPointerDown={(event) => beginDrag(event, "end")}
           style={{ left: `${percent(trimEnd, duration)}%` }}
@@ -510,7 +510,7 @@ type TimeReadoutProps = {
 
 function TimeReadout({ label, value }: TimeReadoutProps) {
   return (
-    <div className="rounded border border-white/[0.075] bg-white/[0.035] px-2 py-1.5">
+    <div className="rounded-[14px] bg-[var(--xype-subtle)] px-2.5 py-1.5">
       <div className="text-[10px] uppercase tracking-[0.12em] text-white/28">{label}</div>
       <div className="font-mono text-xs text-white/75">{formatTime(value)}</div>
     </div>
