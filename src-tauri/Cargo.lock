@@ -5861,7 +5861,7 @@ dependencies = [
 
 [[package]]
 name = "xype"
-version = "1.0.15"
+version = "1.0.16"
 dependencies = [
  "reqwest 0.12.28",
  "serde",

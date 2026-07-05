@@ -77,6 +77,14 @@ def _normalize(clip):
     )
 
 
+def _load_mask(path):
+    if hasattr(core, "imwri"):
+        return core.imwri.Read(path, alpha=False)
+    if hasattr(core, "bs"):
+        return core.bs.VideoSource(path)
+    raise RuntimeError("Mask rendering requires BestSource. Please reinstall the motion engine.")
+
+
 source_clip = _normalize(_source(input_video))
 clip = source_clip
 
@@ -143,8 +151,6 @@ if out_scale != 1.0:
 mask = rc.get("mask", {})
 mask_path = mask.get("path", "")
 if _yes(mask.get("enabled", "no")) and mask_path:
-    if not hasattr(core, "imwri"):
-        raise RuntimeError("Mask rendering requires the VapourSynth imwri image reader plugin.")
     if not os.path.exists(mask_path):
         raise RuntimeError(f"Mask PNG not found: {mask_path}")
 
@@ -153,7 +159,7 @@ if _yes(mask.get("enabled", "no")) and mask_path:
         clean = havsfunc.ChangeFPS(clean, clip.fps_num / clip.fps_den)
     clean = clean[:len(clip)]
 
-    mask_clip = core.imwri.Read(mask_path, alpha=False)
+    mask_clip = _load_mask(mask_path)
     mask_clip = core.std.Loop(mask_clip, times=len(clip))
     mask_clip = core.resize.Bicubic(
         mask_clip,
