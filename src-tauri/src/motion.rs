@@ -37,8 +37,20 @@ pub struct TrimSegment {
 fn hidden_cmd(path: &PathBuf) -> Command {
     let mut cmd = Command::new(path);
     #[cfg(windows)]
-    cmd.creation_flags(CREATE_NO_WINDOW);
+    if !debug_enabled() {
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd
+}
+
+fn debug_enabled() -> bool {
+    std::env::var_os("XYPE_DEBUG").is_some() || std::env::args().any(|arg| arg == "--debug")
+}
+
+fn debug_log(message: impl AsRef<str>) {
+    if debug_enabled() {
+        eprintln!("[xype] {}", message.as_ref());
+    }
 }
 
 fn motion_runtime_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -516,8 +528,10 @@ pub async fn render_video_motion_runtime(
 ) -> Result<ProcessResult, String> {
     let input = PathBuf::from(&input_path);
     let ffmpeg = PathBuf::from(&ffmpeg_path);
+    debug_log(format!("motion render requested: input={input_path} ffmpeg={ffmpeg_path}"));
 
     if !input.exists() {
+        debug_log("motion render failed before start: input video not found");
         return Ok(ProcessResult {
             success: false,
             message: "Input video not found".to_string(),
@@ -525,6 +539,7 @@ pub async fn render_video_motion_runtime(
         });
     }
     if !ffmpeg.exists() {
+        debug_log("motion render failed before start: ffmpeg executable not found");
         return Ok(ProcessResult {
             success: false,
             message: "FFmpeg executable not found".to_string(),
@@ -537,7 +552,14 @@ pub async fn render_video_motion_runtime(
     let vspipe =
         find_named_file(&runtime, "vspipe.exe").unwrap_or_else(|| runtime.join("vspipe.exe"));
     let script = runtime.join("xype_motion.vpy");
+    debug_log(format!(
+        "motion runtime: runtime={} vspipe={} script={}",
+        runtime.to_string_lossy(),
+        vspipe.to_string_lossy(),
+        script.to_string_lossy()
+    ));
     if !vspipe.exists() || !script.exists() {
+        debug_log("motion render failed before start: missing vspipe.exe or xype_motion.vpy");
         return Ok(ProcessResult {
             success: false,
             message: "Install the motion engine before rendering.".to_string(),
@@ -585,6 +607,17 @@ pub async fn render_video_motion_runtime(
         .as_ref()
         .map(|path| path.to_string_lossy().to_string())
         .unwrap_or_default();
+    debug_log(format!(
+        "motion settings: output={} output_fps={} interpolate={} interpolate_fps={} frame_blend={} blur={} flowblur={} mask={}",
+        output_path.to_string_lossy(),
+        output_fps,
+        interpolation_enabled,
+        interpolate_fps,
+        frame_blending_enabled,
+        blur_intensity,
+        flowblur_enabled,
+        if mask_path_value.is_empty() { "none" } else { &mask_path_value }
+    ));
     let mut recipe_value = serde_json::json!({
         "data": {
             "interpolation": {
@@ -654,7 +687,11 @@ pub async fn render_video_motion_runtime(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut vs_child = vs_cmd.spawn().map_err(|e| e.to_string())?;
+    debug_log("starting VSPipe");
+    let mut vs_child = vs_cmd.spawn().map_err(|e| {
+        debug_log(format!("failed to start VSPipe: {e}"));
+        e.to_string()
+    })?;
     let vs_stdout = vs_child
         .stdout
         .take()
@@ -719,7 +756,11 @@ pub async fn render_video_motion_runtime(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut ff_child = ff_cmd.spawn().map_err(|e| e.to_string())?;
+    debug_log(format!("starting FFmpeg encoder={codec}"));
+    let mut ff_child = ff_cmd.spawn().map_err(|e| {
+        debug_log(format!("failed to start FFmpeg: {e}"));
+        e.to_string()
+    })?;
     let ff_stdout = ff_child
         .stdout
         .take()
@@ -767,12 +808,16 @@ pub async fn render_video_motion_runtime(
     let _ = app.emit("render-progress", 1.0_f64);
 
     if ff_status.success() && vs_status.success() && output_path.exists() {
+        debug_log(format!("motion render finished: {}", output_path.to_string_lossy()));
         Ok(ProcessResult {
             success: true,
             message: format!("Rendered motion blur at {output_fps} FPS"),
             output_path: output_path.to_str().map(str::to_string),
         })
     } else {
+        debug_log(format!(
+            "motion render failed: vspipe_status={vs_status:?} ffmpeg_status={ff_status:?}\nVSPipe stderr:\n{vs_stderr_output}\nFFmpeg stderr:\n{ff_stderr_output}"
+        ));
         Ok(ProcessResult {
             success: false,
             message: format!("Motion engine error:\n{vs_stderr_output}\n{ff_stderr_output}"),

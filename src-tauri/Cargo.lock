@@ -5861,7 +5861,7 @@ dependencies = [
 
 [[package]]
 name = "xype"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -5875,6 +5875,7 @@ dependencies = [
  "tauri-plugin-process",
  "tauri-plugin-updater",
  "url",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
