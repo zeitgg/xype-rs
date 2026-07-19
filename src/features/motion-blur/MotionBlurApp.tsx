@@ -33,6 +33,7 @@ import {
   validateFfmpeg,
 } from "./api";
 import { AppSettingsDialog, type UpdateState } from "./AppSettingsDialog";
+import { EndOfSupportNotice } from "./EndOfSupportNotice";
 import { ExportCompleteDialog } from "./ExportCompleteDialog";
 import { JobSwitcher } from "./JobSwitcher";
 import { JobProgressToast } from "./JobProgressToast";
@@ -787,6 +788,8 @@ export function MotionBlurApp() {
           <WindowControls />
         </div>
       </header>
+
+      <EndOfSupportNotice />
 
       <section className="flex min-h-0 flex-1 flex-col gap-2 bg-background p-2">
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_clamp(336px,27vw,400px)] gap-2">

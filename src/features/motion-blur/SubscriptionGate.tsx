@@ -1,6 +1,7 @@
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/button";
 import type { AccessCheck, PublicAuthSession } from "./account";
+import { EndOfSupportNotice } from "./EndOfSupportNotice";
 
 type Props = {
   access: AccessCheck | null;
@@ -17,6 +18,9 @@ export function SubscriptionGate({ access, checking, onRetry, session }: Props) 
     <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-hidden bg-background p-6 text-foreground">
       <div className="xype-splash-sheen" />
       <div className="xype-splash-grid" />
+      <div className="absolute inset-x-0 top-0 z-10">
+        <EndOfSupportNotice />
+      </div>
 
       <section className="relative flex w-full max-w-[520px] flex-col items-center text-center">
         <div className="xype-splash-mark">
